@@ -1,17 +1,22 @@
 #include "raylib.h"
 #include <stdio.h>
 #include <stdbool.h>
+#include <math.h>
 
 // Game state structure
 typedef struct {
     bool running;
     int frame_count;
+    Vector2 position;  // Player position
+    float speed;       // Movement speed
 } GameState;
 
 // Window settings
 #define SCREEN_WIDTH 800
 #define SCREEN_HEIGHT 600
 #define WINDOW_TITLE "Game Engine"
+#define PLAYER_SPEED 5.0f
+#define PLAYER_RADIUS 25.0f
 
 // Initialize game
 void game_init(GameState* game) {
@@ -21,6 +26,11 @@ void game_init(GameState* game) {
     
     game->running = true;
     game->frame_count = 0;
+    game->speed = PLAYER_SPEED;
+    
+    // Start player at center of screen
+    game->position.x = SCREEN_WIDTH / 2.0f;
+    game->position.y = SCREEN_HEIGHT / 2.0f;
     
     printf("Game initialized! Window created: %dx%d\n", SCREEN_WIDTH, SCREEN_HEIGHT);
 }
@@ -30,11 +40,50 @@ void game_update(GameState* game) {
     game->frame_count++;
     
     // Check for window close button or ESC key
-    if (WindowShouldClose()) {
+    if (WindowShouldClose() || IsKeyPressed(KEY_ESCAPE)) {
         game->running = false;
     }
     
-    // Add your game logic here
+    // WASD movement input
+    Vector2 movement = {0.0f, 0.0f};
+    
+    if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP)) {
+        movement.y -= game->speed;
+    }
+    if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN)) {
+        movement.y += game->speed;
+    }
+    if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT)) {
+        movement.x -= game->speed;
+    }
+    if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) {
+        movement.x += game->speed;
+    }
+    
+    // Normalize diagonal movement to maintain consistent speed
+    float length = sqrtf(movement.x * movement.x + movement.y * movement.y);
+    if (length > 0.0f) {
+        movement.x = (movement.x / length) * game->speed;
+        movement.y = (movement.y / length) * game->speed;
+    }
+    
+    // Update position
+    game->position.x += movement.x;
+    game->position.y += movement.y;
+    
+    // Keep player within screen bounds
+    if (game->position.x < PLAYER_RADIUS) {
+        game->position.x = PLAYER_RADIUS;
+    }
+    if (game->position.x > SCREEN_WIDTH - PLAYER_RADIUS) {
+        game->position.x = SCREEN_WIDTH - PLAYER_RADIUS;
+    }
+    if (game->position.y < PLAYER_RADIUS) {
+        game->position.y = PLAYER_RADIUS;
+    }
+    if (game->position.y > SCREEN_HEIGHT - PLAYER_RADIUS) {
+        game->position.y = SCREEN_HEIGHT - PLAYER_RADIUS;
+    }
 }
 
 // Render game
@@ -44,13 +93,14 @@ void game_render(GameState* game) {
     // Clear background
     ClearBackground(RAYWHITE);
     
-    // Draw some basic content
-    DrawText("Game Engine - Raylib Window", 190, 200, 20, DARKGRAY);
-    DrawText(TextFormat("Frame: %d", game->frame_count), 10, 10, 20, BLACK);
-    DrawFPS(10, 40);
+    // Draw UI information
+    DrawText("WASD to move", 10, 10, 20, BLACK);
+    DrawText(TextFormat("Position: (%.0f, %.0f)", game->position.x, game->position.y), 10, 35, 20, BLACK);
+    DrawFPS(10, 60);
     
-    // Draw a simple shape to show it's working
-    DrawCircle(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, 50, BLUE);
+    // Draw player (circle)
+    DrawCircleV(game->position, PLAYER_RADIUS, BLUE);
+    DrawCircleV(game->position, PLAYER_RADIUS - 2, DARKBLUE);
     
     EndDrawing();
 }
