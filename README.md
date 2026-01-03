@@ -12,6 +12,9 @@ A lightweight, modular game engine built in C using Raylib. This engine provides
   - Map system with collision detection
   - Renderer for drawing game elements
   - Player, Enemy, and Item entity systems
+  - Projectile system for combat mechanics
+  - State management system
+  - High score system with persistent storage
 - **SOLID Principles**: Well-structured codebase following best practices
 - **Extensible**: Easy to add new features and game types
 
@@ -20,6 +23,7 @@ A lightweight, modular game engine built in C using Raylib. This engine provides
 The engine includes a complete demo game where players collect coins across 4 interconnected maps while avoiding obstacles. Features include:
 
 - WASD movement controls
+- Mouse click or SPACE+Arrow key shooting with projectiles
 - Multiple interconnected maps with exits/entrances
 - Collectible coins
 - Moving obstacles that damage the player
@@ -72,21 +76,30 @@ Game Engine
 │   ├── Main loop
 │   └── Callback system
 ├── Game Logic (game)
-│   ├── State management
+│   ├── Game callbacks
 │   └── Game-specific logic
+├── State Management (state)
+│   ├── Game state management
+│   ├── Projectile management
+│   └── State transitions
+├── High Score System (highscore)
+│   ├── Score loading/saving
+│   └── Score ranking
 ├── Rendering (renderer)
 │   ├── Map rendering
 │   ├── Entity rendering
+│   ├── Projectile rendering
 │   └── UI rendering
 ├── Audio (audio)
 │   └── Procedural sound generation
 ├── Map System (map)
 │   ├── Collision detection
 │   └── Map data structures
-└── Entities
-    ├── Player
-    ├── Enemy
-    └── Item
+├── Entities
+│   ├── Player
+│   ├── Enemy
+│   ├── Item
+│   └── Projectile
 ```
 
 ## API Documentation
@@ -126,6 +139,102 @@ typedef struct {
 - `int gengine_get_frame_count(GameEngine* engine)` - Get current frame count
 - `bool gengine_is_running(GameEngine* engine)` - Check if engine is running
 - `void gengine_stop(GameEngine* engine)` - Request engine to stop
+
+### State Management API
+
+#### `state.h`
+
+Centralized game state management system.
+
+**Game State Types:**
+```c
+typedef enum {
+    GAME_STATE_START,
+    GAME_STATE_PLAYING,
+    GAME_STATE_END,
+    GAME_STATE_ENTER_NAME,
+    GAME_STATE_HIGH_SCORES
+} GameStateType;
+```
+
+**State Creation/Destruction:**
+- `GameState* state_create(void)` - Create new game state
+- `void state_destroy(GameState* state)` - Destroy game state
+- `void state_init(GameState* state)` - Initialize game state
+- `void state_reset(GameState* state)` - Reset to initial playing state
+
+**State Queries:**
+- `GameStateType state_get_type(const GameState* state)` - Get current state type
+- `bool state_is_running(const GameState* state)` - Check if running
+- `int state_get_frame_count(const GameState* state)` - Get frame count
+- `Player* state_get_player(GameState* state)` - Get player instance
+- `Map* state_get_current_map(GameState* state)` - Get current map
+- `int state_get_coins_collected(const GameState* state)` - Get coins collected
+- `bool state_all_coins_collected(const GameState* state)` - Check if all coins collected
+
+**State Modifications:**
+- `void state_set_type(GameState* state, GameStateType type)` - Set state type
+- `void state_set_running(GameState* state, bool running)` - Set running flag
+- `void state_increment_coins_collected(GameState* state)` - Increment coin count
+
+**Projectile Management:**
+- `bool state_add_projectile(GameState* state, Projectile* projectile)` - Add projectile
+- `Projectile** state_get_projectiles(GameState* state, int* count)` - Get all projectiles
+- `void state_remove_projectile(GameState* state, int index)` - Remove projectile
+- `void state_clear_projectiles(GameState* state)` - Clear all projectiles
+- `int state_get_projectile_cooldown(const GameState* state)` - Get cooldown
+- `void state_set_projectile_cooldown(GameState* state, int cooldown)` - Set cooldown
+
+### High Score API
+
+#### `highscore.h`
+
+High score management with persistent file storage.
+
+**High Score Structure:**
+```c
+typedef struct {
+    char name[MAX_NAME_LENGTH + 1];
+    int frame_count;
+    int coins_collected;
+    float health_remaining;
+} HighScore;
+```
+
+**Functions:**
+- `void highscore_load(HighScore* high_scores, int* count)` - Load from file
+- `void highscore_save(const HighScore* high_scores, int count)` - Save to file
+- `bool highscore_add(HighScore* high_scores, int* count, const char* name, int frame_count, int coins_collected, float health_remaining)` - Add new high score
+
+### Projectile API
+
+#### `projectile.h`
+
+Projectile system for combat mechanics.
+
+**Creation/Destruction:**
+- `Projectile* projectile_create(Vector2 position, Vector2 direction)` - Create projectile
+- `void projectile_destroy(Projectile* projectile)` - Destroy projectile
+
+**State Queries:**
+- `Vector2 projectile_get_position(const Projectile* projectile)` - Get position
+- `Vector2 projectile_get_velocity(const Projectile* projectile)` - Get velocity
+- `float projectile_get_radius(const Projectile* projectile)` - Get radius
+- `float projectile_get_damage(const Projectile* projectile)` - Get damage
+- `bool projectile_is_active(const Projectile* projectile)` - Check if active
+
+**Update Logic:**
+- `void projectile_update(Projectile* projectile)` - Update position and lifetime
+
+**Collision Detection:**
+- `bool projectile_check_circle_collision(const Projectile* projectile, Vector2 circle_pos, float circle_radius)` - Check circle collision
+- `bool projectile_check_rect_collision(const Projectile* projectile, Rectangle rect)` - Check rectangle collision
+
+**Constants:**
+- `PROJECTILE_SPEED = 10.0f`
+- `PROJECTILE_RADIUS = 5.0f`
+- `PROJECTILE_DAMAGE = 20.0f`
+- `PROJECTILE_LIFETIME = 120` (frames)
 
 ### Audio API
 
@@ -196,6 +305,7 @@ Rendering system for drawing game elements and UI.
 - `void renderer_draw_coin(Vector2 position, bool collected)` - Draw coin
 - `void renderer_draw_obstacle(Vector2 position, float radius, Color color)` - Draw obstacle
 - `void renderer_draw_player(Vector2 position, bool invincible, int invincibility_timer)` - Draw player
+- `void renderer_draw_projectile(Vector2 position, float radius)` - Draw projectile
 
 **UI Rendering:**
 - `void renderer_draw_health_bar(float x, float y, float width, float height, float health, float max_health)` - Draw health bar
@@ -204,11 +314,11 @@ Rendering system for drawing game elements and UI.
 - `void renderer_draw_fps(int x, int y)` - Draw FPS counter
 
 **Screen Rendering:**
-- `void renderer_draw_start_screen(int frame_count, const struct HighScore* high_scores, int high_score_count)` - Draw start screen
+- `void renderer_draw_start_screen(int frame_count, const HighScore* high_scores, int high_score_count)` - Draw start screen
 - `void renderer_draw_end_screen(...)` - Draw end/victory screen
 - `void renderer_draw_name_entry_screen(...)` - Draw name entry screen
 - `void renderer_draw_high_scores_screen(...)` - Draw high scores screen
-- `void renderer_draw_game_screen(...)` - Draw main game screen
+- `void renderer_draw_game_screen(..., Projectile** projectiles, int projectile_count)` - Draw main game screen
 
 ### Player API
 
@@ -430,6 +540,7 @@ The included demo game demonstrates all engine features:
 1. **Start Screen**: Press SPACE or ENTER to start, H to view high scores
 2. **Playing**: 
    - Use WASD or arrow keys to move
+   - Click mouse or press SPACE+Arrow keys to shoot projectiles
    - Collect all coins across 4 maps
    - Avoid red obstacles (they damage you)
    - Walk into green exits to change maps
@@ -447,9 +558,10 @@ The included demo game demonstrates all engine features:
 ### Key Features Demonstrated
 
 - Multi-map navigation with exits/entrances
-- Entity systems (player, enemies, items)
+- Entity systems (player, enemies, items, projectiles)
 - Collision detection
 - Health system with invincibility frames
+- Projectile combat system
 - Persistent high score storage
 - State management
 - Audio feedback
@@ -473,6 +585,14 @@ The included demo game demonstrates all engine features:
 - `ENEMY_RADIUS = 20.0f`
 - `ENEMY_DIRECTION_CHANGE_FRAMES = 120`
 
+### Projectile Constants
+- `PROJECTILE_SPEED = 10.0f`
+- `PROJECTILE_RADIUS = 5.0f`
+- `PROJECTILE_DAMAGE = 20.0f`
+- `PROJECTILE_LIFETIME = 120` (frames)
+- `PROJECTILE_COOLDOWN = 10` (frames between shots)
+- `MAX_PROJECTILES = 50`
+
 ### Item Constants
 - `COIN_RADIUS = 15.0f`
 - `ITEM_COIN_RADIUS = 15.0f`
@@ -485,12 +605,18 @@ The included demo game demonstrates all engine features:
 - `MAX_OBSTACLES = 5`
 - `NUM_MAPS = 4`
 
+### State Constants
+- `MAX_HIGH_SCORES = 10`
+- `MAX_NAME_LENGTH = 20`
+
 ## Input Handling
 
 The engine uses Raylib's input system. Common functions:
 
 - `IsKeyDown(KEY_W)` - Check if key is held
 - `IsKeyPressed(KEY_SPACE)` - Check if key was just pressed
+- `IsMouseButtonPressed(MOUSE_BUTTON_LEFT)` - Check if mouse button was pressed
+- `GetMousePosition()` - Get current mouse position
 - `GetCharPressed()` - Get character input
 - `WindowShouldClose()` - Check if window close requested
 
@@ -498,7 +624,7 @@ The engine uses Raylib's input system. Common functions:
 
 1. **Memory Management**: Always pair `create` functions with `destroy` functions
 2. **Null Checks**: Always check for NULL before using pointers
-3. **State Management**: Use enums for game states
+3. **State Management**: Use the state module for centralized game state
 4. **Modularity**: Keep game logic separate from rendering
 5. **Constants**: Use constants instead of magic numbers
 6. **Error Handling**: Check return values from functions
@@ -520,20 +646,26 @@ The engine uses Raylib's input system. Common functions:
 │   ├── enemy.h
 │   ├── game.h
 │   ├── gengine.h
+│   ├── highscore.h
 │   ├── item.h
 │   ├── map.h
 │   ├── player.h
-│   └── renderer.h
+│   ├── projectile.h
+│   ├── renderer.h
+│   └── state.h
 ├── src/                   # Source files
 │   ├── audio.c
 │   ├── enemy.c
 │   ├── game.c
 │   ├── gengine.c
+│   ├── highscore.c
 │   ├── item.c
 │   ├── main.c
 │   ├── map.c
 │   ├── player.c
-│   └── renderer.c
+│   ├── projectile.c
+│   ├── renderer.c
+│   └── state.c
 └── build/                 # Build directory (generated)
 ```
 
