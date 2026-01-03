@@ -3,10 +3,9 @@
 
 #include "raylib.h"
 #include "map.h"
+#include "highscore.h"
 #include <stdbool.h>
 #include <stddef.h>
-
-struct HighScore;
 
 #define COIN_RADIUS 15.0f
 #define PLAYER_RADIUS 25.0f
@@ -94,7 +93,7 @@ void renderer_draw_fps(int x, int y);
  * @param high_scores Array of high scores
  * @param high_score_count Number of high scores
  */
-void renderer_draw_start_screen(int frame_count, const struct HighScore* high_scores, int high_score_count);
+void renderer_draw_start_screen(int frame_count, const HighScore* high_scores, int high_score_count);
 
 /**
  * Draw the end/victory screen.
@@ -107,7 +106,7 @@ void renderer_draw_start_screen(int frame_count, const struct HighScore* high_sc
  * @param high_score_count Number of high scores
  */
 void renderer_draw_end_screen(int frame_count, int game_start_frame, int total_coins, float health, float max_health, 
-                              const struct HighScore* high_scores, int high_score_count);
+                              const HighScore* high_scores, int high_score_count);
 
 /**
  * Draw the name entry screen.
@@ -124,7 +123,7 @@ void renderer_draw_name_entry_screen(const char* player_name, int name_length, i
  * @param high_scores Array of high scores
  * @param high_score_count Number of high scores
  */
-void renderer_draw_high_scores_screen(const struct HighScore* high_scores, int high_score_count);
+void renderer_draw_high_scores_screen(const HighScore* high_scores, int high_score_count);
 
 /**
  * Draw the main game screen.

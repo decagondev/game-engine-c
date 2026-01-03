@@ -25,6 +25,8 @@ set(SOURCES
     src/player.c
     src/enemy.c
     src/item.c
+    src/state.c
+    src/highscore.c
 )
 
 # Include directories

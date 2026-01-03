@@ -1,4 +1,5 @@
 #include "../include/renderer.h"
+#include "../include/highscore.h"
 #include "raylib.h"
 #include <stdio.h>
 #include <string.h>
@@ -6,15 +7,6 @@
 
 #define SCREEN_WIDTH 800
 #define SCREEN_HEIGHT 600
-#define MAX_HIGH_SCORES 10
-#define MAX_NAME_LENGTH 20
-
-struct HighScore {
-    char name[MAX_NAME_LENGTH + 1];
-    int frame_count;
-    int coins_collected;
-    float health_remaining;
-};
 
 void renderer_init(void) {
 }
@@ -114,7 +106,7 @@ void renderer_draw_fps(int x, int y) {
     DrawFPS(x, y);
 }
 
-void renderer_draw_start_screen(int frame_count, const struct HighScore* high_scores, int high_score_count) {
+void renderer_draw_start_screen(int frame_count, const HighScore* high_scores, int high_score_count) {
     ClearBackground((Color){30, 30, 50, 255});
     
     renderer_draw_text_centered("COIN COLLECTOR", 150, 60, GOLD);
@@ -151,7 +143,7 @@ void renderer_draw_start_screen(int frame_count, const struct HighScore* high_sc
 }
 
 void renderer_draw_end_screen(int frame_count, int game_start_frame, int total_coins, float health, float max_health,
-                              const struct HighScore* high_scores, int high_score_count) {
+                              const HighScore* high_scores, int high_score_count) {
     ClearBackground((Color){20, 50, 20, 255});
     
     renderer_draw_text_centered("VICTORY!", 150, 70, GOLD);
@@ -224,7 +216,7 @@ void renderer_draw_name_entry_screen(const char* player_name, int name_length, i
     renderer_draw_text_centered("Type your name and press ENTER", 420, 20, LIGHTGRAY);
 }
 
-void renderer_draw_high_scores_screen(const struct HighScore* high_scores, int high_score_count) {
+void renderer_draw_high_scores_screen(const HighScore* high_scores, int high_score_count) {
     ClearBackground((Color){20, 20, 40, 255});
     
     renderer_draw_text_centered("HIGH SCORES", 50, 60, GOLD);
