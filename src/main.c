@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <math.h>
+#include <string.h>
+#include <stdlib.h>
 
 // Map structures
 typedef struct {
@@ -57,17 +59,32 @@ typedef struct {
     Color bg_color;
 } Map;
 
+// High score structure
+#define MAX_HIGH_SCORES 10
+#define HIGH_SCORE_FILENAME "highscores.txt"
+#define MAX_NAME_LENGTH 20
+
+typedef struct {
+    char name[MAX_NAME_LENGTH + 1];
+    int frame_count;
+    int coins_collected;
+    float health_remaining;
+} HighScore;
+
 // Game screen states
 typedef enum {
     GAME_STATE_START,
     GAME_STATE_PLAYING,
-    GAME_STATE_END
+    GAME_STATE_END,
+    GAME_STATE_ENTER_NAME,
+    GAME_STATE_HIGH_SCORES
 } GameStateType;
 
 // Game state structure
 typedef struct {
     bool running;
     int frame_count;
+    int game_start_frame;  // Frame count when game started (for score calculation)
     Vector2 position;  // Player position
     float speed;       // Movement speed
     int current_map_id;
@@ -78,6 +95,11 @@ typedef struct {
     int invincibility_timer;
     GameStateType state;
     Map maps[NUM_MAPS];
+    HighScore high_scores[MAX_HIGH_SCORES];
+    int high_score_count;
+    char player_name[MAX_NAME_LENGTH + 1];
+    int name_char_count;
+    HighScore pending_score;  // Score waiting to be saved with name
 } GameState;
 
 // Window settings
@@ -380,6 +402,92 @@ bool all_coins_collected(GameState* game) {
     return total_collected >= game->total_coins;
 }
 
+// Load high scores from file
+void load_high_scores(GameState* game) {
+    game->high_score_count = 0;
+    
+    FILE* file = fopen(HIGH_SCORE_FILENAME, "r");
+    if (file == NULL) {
+        // File doesn't exist yet, that's okay
+        return;
+    }
+    
+    HighScore score;
+    char line[256];
+    
+    while (game->high_score_count < MAX_HIGH_SCORES && fgets(line, sizeof(line), file) != NULL) {
+        // Parse line: name frame_count coins_collected health_remaining
+        char name_buffer[MAX_NAME_LENGTH + 1] = {0};
+        if (sscanf(line, "%20s %d %d %f", name_buffer, &score.frame_count, &score.coins_collected, &score.health_remaining) == 4) {
+            strncpy(score.name, name_buffer, MAX_NAME_LENGTH);
+            score.name[MAX_NAME_LENGTH] = '\0';
+            game->high_scores[game->high_score_count++] = score;
+        }
+    }
+    
+    fclose(file);
+}
+
+// Save high scores to file
+void save_high_scores(GameState* game) {
+    FILE* file = fopen(HIGH_SCORE_FILENAME, "w");
+    if (file == NULL) {
+        printf("Error: Could not save high scores to file\n");
+        return;
+    }
+    
+    for (int i = 0; i < game->high_score_count; i++) {
+        fprintf(file, "%s %d %d %.1f\n", 
+                game->high_scores[i].name,
+                game->high_scores[i].frame_count,
+                game->high_scores[i].coins_collected,
+                game->high_scores[i].health_remaining);
+    }
+    
+    fclose(file);
+}
+
+// Add a new high score (if it qualifies)
+void add_high_score(GameState* game, const char* name, int frame_count, int coins_collected, float health_remaining) {
+    HighScore new_score;
+    strncpy(new_score.name, name, MAX_NAME_LENGTH);
+    new_score.name[MAX_NAME_LENGTH] = '\0';
+    new_score.frame_count = frame_count;
+    new_score.coins_collected = coins_collected;
+    new_score.health_remaining = health_remaining;
+    
+    // Find insertion point (scores are sorted by frame_count, lowest first)
+    int insert_pos = game->high_score_count;
+    for (int i = 0; i < game->high_score_count; i++) {
+        if (frame_count < game->high_scores[i].frame_count) {
+            insert_pos = i;
+            break;
+        }
+    }
+    
+    // If we have space or this is better than the worst score
+    if (game->high_score_count < MAX_HIGH_SCORES || insert_pos < MAX_HIGH_SCORES) {
+        // Shift scores down if needed
+        if (game->high_score_count >= MAX_HIGH_SCORES) {
+            // Remove worst score
+            game->high_score_count = MAX_HIGH_SCORES - 1;
+        }
+        
+        // Shift scores to make room
+        for (int i = game->high_score_count; i > insert_pos; i--) {
+            game->high_scores[i] = game->high_scores[i - 1];
+        }
+        
+        // Insert new score
+        game->high_scores[insert_pos] = new_score;
+        game->high_score_count++;
+        
+        // Save to file
+        save_high_scores(game);
+        printf("New high score added! Rank: %d, Name: %s, Frames: %d\n", insert_pos + 1, name, frame_count);
+    }
+}
+
 // Initialize game
 void game_init(GameState* game) {
     // Initialize raylib window
@@ -388,6 +496,7 @@ void game_init(GameState* game) {
     
     game->running = true;
     game->frame_count = 0;
+    game->game_start_frame = 0;
     game->speed = PLAYER_SPEED;
     game->current_map_id = 0;
     game->coins_collected = 0;
@@ -395,6 +504,13 @@ void game_init(GameState* game) {
     game->health = MAX_HEALTH;
     game->max_health = MAX_HEALTH;
     game->invincibility_timer = 0;
+    game->high_score_count = 0;
+    memset(game->player_name, 0, sizeof(game->player_name));
+    game->name_char_count = 0;
+    memset(&game->pending_score, 0, sizeof(game->pending_score));
+    
+    // Load high scores from file
+    load_high_scores(game);
     
     // Initialize all maps
     for (int i = 0; i < NUM_MAPS; i++) {
@@ -412,6 +528,7 @@ void game_init(GameState* game) {
     
     printf("Game initialized! Window created: %dx%d\n", SCREEN_WIDTH, SCREEN_HEIGHT);
     printf("Total coins: %d\n", game->total_coins);
+    printf("High scores loaded: %d\n", game->high_score_count);
 }
 
 // Update game logic
@@ -427,6 +544,58 @@ void game_update(GameState* game) {
     if (game->state == GAME_STATE_START) {
         if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
             game->state = GAME_STATE_PLAYING;
+            game->game_start_frame = game->frame_count; // Track when game starts
+        }
+        if (IsKeyPressed(KEY_H)) {
+            game->state = GAME_STATE_HIGH_SCORES;
+        }
+        return;
+    }
+    
+    if (game->state == GAME_STATE_HIGH_SCORES) {
+        if (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_H) || IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
+            game->state = GAME_STATE_START;
+        }
+        return;
+    }
+    
+    if (game->state == GAME_STATE_ENTER_NAME) {
+        // Handle text input
+        int key = GetCharPressed();
+        while (key > 0) {
+            if ((key >= 32) && (key <= 125) && (game->name_char_count < MAX_NAME_LENGTH)) {
+                game->player_name[game->name_char_count] = (char)key;
+                game->name_char_count++;
+                game->player_name[game->name_char_count] = '\0';
+            }
+            key = GetCharPressed();
+        }
+        
+        // Handle backspace
+        if (IsKeyPressed(KEY_BACKSPACE)) {
+            if (game->name_char_count > 0) {
+                game->name_char_count--;
+                game->player_name[game->name_char_count] = '\0';
+            }
+        }
+        
+        // Submit name
+        if (IsKeyPressed(KEY_ENTER)) {
+            if (game->name_char_count > 0) {
+                // Add high score with name
+                add_high_score(game, game->player_name, 
+                              game->pending_score.frame_count,
+                              game->pending_score.coins_collected,
+                              game->pending_score.health_remaining);
+                game->state = GAME_STATE_END;
+            } else {
+                // Use default name if empty
+                add_high_score(game, "Player", 
+                              game->pending_score.frame_count,
+                              game->pending_score.coins_collected,
+                              game->pending_score.health_remaining);
+                game->state = GAME_STATE_END;
+            }
         }
         return;
     }
@@ -440,6 +609,7 @@ void game_update(GameState* game) {
             game->position = game->maps[0].entrances[0].position;
             game->health = MAX_HEALTH;
             game->invincibility_timer = 0;
+            game->game_start_frame = 0;
             // Reset all coins
             for (int i = 0; i < NUM_MAPS; i++) {
                 for (int j = 0; j < game->maps[i].coin_count; j++) {
@@ -617,6 +787,7 @@ void game_update(GameState* game) {
                 game->position = game->maps[0].entrances[0].position;
                 game->health = MAX_HEALTH;
                 game->invincibility_timer = 0;
+                game->game_start_frame = game->frame_count; // Reset timer for new attempt
                 // Reset all coins
                 for (int j = 0; j < NUM_MAPS; j++) {
                     for (int k = 0; k < game->maps[j].coin_count; k++) {
@@ -645,8 +816,20 @@ void game_update(GameState* game) {
                 
                 // Check if all coins are collected
                 if (all_coins_collected(game)) {
-                    game->state = GAME_STATE_END;
-                    printf("All coins collected! Game complete!\n");
+                    // Calculate completion frame count
+                    int completion_frames = game->frame_count - game->game_start_frame;
+                    printf("All coins collected! Game complete in %d frames!\n", completion_frames);
+                    
+                    // Store pending score and go to name entry
+                    game->pending_score.frame_count = completion_frames;
+                    game->pending_score.coins_collected = game->coins_collected;
+                    game->pending_score.health_remaining = game->health;
+                    
+                    // Reset name input
+                    memset(game->player_name, 0, sizeof(game->player_name));
+                    game->name_char_count = 0;
+                    
+                    game->state = GAME_STATE_ENTER_NAME;
                 }
             }
         }
@@ -672,11 +855,13 @@ void render_start_screen(GameState* game) {
     const char* instruction3 = "Walk into green exits to change maps";
     const char* instruction4 = "Avoid red obstacles - they will kill you!";
     const char* press_key = "Press SPACE or ENTER to start";
+    const char* high_score_key = "Press H to view high scores";
     
-    DrawText(instruction1, SCREEN_WIDTH/2 - MeasureText(instruction1, 24)/2, 260, 24, WHITE);
-    DrawText(instruction2, SCREEN_WIDTH/2 - MeasureText(instruction2, 20)/2, 300, 20, LIGHTGRAY);
-    DrawText(instruction3, SCREEN_WIDTH/2 - MeasureText(instruction3, 20)/2, 330, 20, LIGHTGRAY);
-    DrawText(instruction4, SCREEN_WIDTH/2 - MeasureText(instruction4, 20)/2, 360, 20, RED);
+    DrawText(instruction1, SCREEN_WIDTH/2 - MeasureText(instruction1, 24)/2, 240, 24, WHITE);
+    DrawText(instruction2, SCREEN_WIDTH/2 - MeasureText(instruction2, 20)/2, 280, 20, LIGHTGRAY);
+    DrawText(instruction3, SCREEN_WIDTH/2 - MeasureText(instruction3, 20)/2, 310, 20, LIGHTGRAY);
+    DrawText(instruction4, SCREEN_WIDTH/2 - MeasureText(instruction4, 20)/2, 340, 20, RED);
+    DrawText(high_score_key, SCREEN_WIDTH/2 - MeasureText(high_score_key, 18)/2, 380, 18, YELLOW);
     
     // Blinking start text
     if ((game->frame_count / 30) % 2 == 0) {
@@ -691,6 +876,20 @@ void render_start_screen(GameState* game) {
         DrawCircleV((Vector2){x, y}, COIN_RADIUS, GOLD);
         DrawCircleV((Vector2){x, y}, COIN_RADIUS - 2, YELLOW);
         DrawCircleLinesV((Vector2){x, y}, COIN_RADIUS, ORANGE);
+    }
+    
+    // Draw high scores preview
+    if (game->high_score_count > 0) {
+        DrawText("TOP SCORES (Press H for full list)", SCREEN_WIDTH/2 - MeasureText("TOP SCORES (Press H for full list)", 18)/2, 420, 18, GOLD);
+        int y_offset = 445;
+        int max_display = (game->high_score_count < 3) ? game->high_score_count : 3;
+        for (int i = 0; i < max_display; i++) {
+            char score_text[120];
+            snprintf(score_text, sizeof(score_text), "%d. %s - %d frames", 
+                     i + 1, game->high_scores[i].name, game->high_scores[i].frame_count);
+            DrawText(score_text, SCREEN_WIDTH/2 - MeasureText(score_text, 16)/2, y_offset, 16, WHITE);
+            y_offset += 18;
+        }
     }
     
     EndDrawing();
@@ -713,12 +912,35 @@ void render_end_screen(GameState* game) {
     char stats[100];
     snprintf(stats, sizeof(stats), "You collected all %d coins!", game->total_coins);
     int stats_width = MeasureText(stats, 32);
-    DrawText(stats, SCREEN_WIDTH/2 - stats_width/2, 250, 32, WHITE);
+    DrawText(stats, SCREEN_WIDTH/2 - stats_width/2, 220, 32, WHITE);
     
+    int completion_frames = game->frame_count - game->game_start_frame;
     char frames[100];
-    snprintf(frames, sizeof(frames), "Total frames: %d", game->frame_count);
+    snprintf(frames, sizeof(frames), "Completion time: %d frames", completion_frames);
     int frames_width = MeasureText(frames, 24);
-    DrawText(frames, SCREEN_WIDTH/2 - frames_width/2, 300, 24, LIGHTGRAY);
+    DrawText(frames, SCREEN_WIDTH/2 - frames_width/2, 260, 24, LIGHTGRAY);
+    
+    char health_text[100];
+    snprintf(health_text, sizeof(health_text), "Health remaining: %.0f/%.0f", game->health, game->max_health);
+    int health_width = MeasureText(health_text, 24);
+    DrawText(health_text, SCREEN_WIDTH/2 - health_width/2, 290, 24, LIGHTGRAY);
+    
+    // Draw high scores
+    if (game->high_score_count > 0) {
+        DrawText("HIGH SCORES (Lowest frames = Best)", SCREEN_WIDTH/2 - MeasureText("HIGH SCORES (Lowest frames = Best)", 20)/2, 330, 20, GOLD);
+        int y_offset = 355;
+        int max_display = (game->high_score_count < 5) ? game->high_score_count : 5;
+        for (int i = 0; i < max_display; i++) {
+            char score_text[150];
+            snprintf(score_text, sizeof(score_text), "%d. %s - %d frames | Coins: %d | HP: %.0f", 
+                     i + 1, game->high_scores[i].name,
+                     game->high_scores[i].frame_count, 
+                     game->high_scores[i].coins_collected, 
+                     game->high_scores[i].health_remaining);
+            DrawText(score_text, SCREEN_WIDTH/2 - MeasureText(score_text, 16)/2, y_offset, 16, WHITE);
+            y_offset += 18;
+        }
+    }
     
     // Restart instruction
     const char* restart = "Press SPACE or ENTER to play again";
@@ -727,11 +949,11 @@ void render_end_screen(GameState* game) {
     // Blinking restart text
     if ((game->frame_count / 30) % 2 == 0) {
         int restart_width = MeasureText(restart, 28);
-        DrawText(restart, SCREEN_WIDTH/2 - restart_width/2, 400, 28, YELLOW);
+        DrawText(restart, SCREEN_WIDTH/2 - restart_width/2, 480, 28, YELLOW);
     }
     
     int quit_width = MeasureText(quit, 24);
-    DrawText(quit, SCREEN_WIDTH/2 - quit_width/2, 450, 24, LIGHTGRAY);
+    DrawText(quit, SCREEN_WIDTH/2 - quit_width/2, 520, 24, LIGHTGRAY);
     
     // Draw celebration coins
     for (int i = 0; i < 8; i++) {
@@ -747,6 +969,101 @@ void render_end_screen(GameState* game) {
     EndDrawing();
 }
 
+// Render name entry screen
+void render_name_entry_screen(GameState* game) {
+    BeginDrawing();
+    
+    ClearBackground((Color){30, 30, 50, 255});
+    
+    // Title
+    const char* title = "ENTER YOUR NAME";
+    int title_font_size = 50;
+    int title_width = MeasureText(title, title_font_size);
+    DrawText(title, SCREEN_WIDTH/2 - title_width/2, 200, title_font_size, GOLD);
+    
+    // Score info
+    char score_info[150];
+    snprintf(score_info, sizeof(score_info), "Frames: %d | Coins: %d | HP: %.0f", 
+             game->pending_score.frame_count, 
+             game->pending_score.coins_collected,
+             game->pending_score.health_remaining);
+    int info_width = MeasureText(score_info, 24);
+    DrawText(score_info, SCREEN_WIDTH/2 - info_width/2, 280, 24, WHITE);
+    
+    // Name input box
+    int box_width = 400;
+    int box_height = 50;
+    int box_x = SCREEN_WIDTH/2 - box_width/2;
+    int box_y = 350;
+    
+    DrawRectangle(box_x, box_y, box_width, box_height, DARKGRAY);
+    DrawRectangleLinesEx((Rectangle){box_x, box_y, box_width, box_height}, 3, WHITE);
+    
+    // Display name with cursor
+    char display_text[MAX_NAME_LENGTH + 2];
+    snprintf(display_text, sizeof(display_text), "%s_", game->player_name);
+    int text_width = MeasureText(display_text, 32);
+    DrawText(display_text, box_x + 10, box_y + 10, 32, WHITE);
+    
+    // Instructions
+    const char* instruction = "Type your name and press ENTER";
+    int inst_width = MeasureText(instruction, 20);
+    DrawText(instruction, SCREEN_WIDTH/2 - inst_width/2, 420, 20, LIGHTGRAY);
+    
+    EndDrawing();
+}
+
+// Render high scores screen
+void render_high_scores_screen(GameState* game) {
+    BeginDrawing();
+    
+    ClearBackground((Color){20, 20, 40, 255});
+    
+    // Title
+    const char* title = "HIGH SCORES";
+    int title_font_size = 60;
+    int title_width = MeasureText(title, title_font_size);
+    DrawText(title, SCREEN_WIDTH/2 - title_width/2, 50, title_font_size, GOLD);
+    
+    const char* subtitle = "Lowest frames = Best score";
+    int subtitle_width = MeasureText(subtitle, 20);
+    DrawText(subtitle, SCREEN_WIDTH/2 - subtitle_width/2, 120, 20, LIGHTGRAY);
+    
+    // Draw all high scores
+    if (game->high_score_count > 0) {
+        int y_offset = 180;
+        int max_display = (game->high_score_count < MAX_HIGH_SCORES) ? game->high_score_count : MAX_HIGH_SCORES;
+        
+        // Header
+        const char* header = "Rank  Name                Frames  Coins  HP";
+        DrawText(header, SCREEN_WIDTH/2 - MeasureText(header, 18)/2, y_offset, 18, YELLOW);
+        y_offset += 35;
+        
+        for (int i = 0; i < max_display; i++) {
+            char score_text[200];
+            snprintf(score_text, sizeof(score_text), "%2d.   %-20s %6d  %5d  %.0f", 
+                     i + 1, 
+                     game->high_scores[i].name,
+                     game->high_scores[i].frame_count, 
+                     game->high_scores[i].coins_collected, 
+                     game->high_scores[i].health_remaining);
+            DrawText(score_text, SCREEN_WIDTH/2 - MeasureText(score_text, 18)/2, y_offset, 18, WHITE);
+            y_offset += 25;
+        }
+    } else {
+        const char* no_scores = "No high scores yet!";
+        int no_scores_width = MeasureText(no_scores, 32);
+        DrawText(no_scores, SCREEN_WIDTH/2 - no_scores_width/2, 300, 32, LIGHTGRAY);
+    }
+    
+    // Instructions
+    const char* instruction = "Press ESC, H, SPACE, or ENTER to return";
+    int inst_width = MeasureText(instruction, 24);
+    DrawText(instruction, SCREEN_WIDTH/2 - inst_width/2, SCREEN_HEIGHT - 50, 24, YELLOW);
+    
+    EndDrawing();
+}
+
 // Render game
 void game_render(GameState* game) {
     // Handle different game states
@@ -757,6 +1074,16 @@ void game_render(GameState* game) {
     
     if (game->state == GAME_STATE_END) {
         render_end_screen(game);
+        return;
+    }
+    
+    if (game->state == GAME_STATE_ENTER_NAME) {
+        render_name_entry_screen(game);
+        return;
+    }
+    
+    if (game->state == GAME_STATE_HIGH_SCORES) {
+        render_high_scores_screen(game);
         return;
     }
     
