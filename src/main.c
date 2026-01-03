@@ -18,10 +18,17 @@ typedef struct {
     Vector2 position;
 } Entrance;
 
+typedef struct {
+    Vector2 position;
+    bool collected;
+} Coin;
+
 #define MAX_WALLS 20
 #define MAX_EXITS 4
 #define MAX_ENTRANCES 4
+#define MAX_COINS 10
 #define NUM_MAPS 4
+#define COIN_RADIUS 15.0f
 
 typedef struct {
     int map_id;
@@ -31,6 +38,8 @@ typedef struct {
     int exit_count;
     Entrance entrances[MAX_ENTRANCES];
     int entrance_count;
+    Coin coins[MAX_COINS];
+    int coin_count;
     Color bg_color;
 } Map;
 
@@ -41,6 +50,7 @@ typedef struct {
     Vector2 position;  // Player position
     float speed;       // Movement speed
     int current_map_id;
+    int coins_collected;
     Map maps[NUM_MAPS];
 } GameState;
 
@@ -70,6 +80,7 @@ void init_map(Map* map, int map_id) {
     map->wall_count = 0;
     map->exit_count = 0;
     map->entrance_count = 0;
+    map->coin_count = 0;
     
     // Set background color based on map
     switch(map_id) {
@@ -82,11 +93,13 @@ void init_map(Map* map, int map_id) {
     
     // Map 0: Top-left room
     if (map_id == 0) {
-        // Walls
-        map->walls[map->wall_count++] = (Wall){(Rectangle){100, 100, 200, 30}}; // Top wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){100, 100, 30, 200}}; // Left wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){100, 270, 200, 30}}; // Bottom wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){270, 100, 30, 200}}; // Right wall (with gap for exit)
+        // Walls - create open layout with obstacles
+        map->walls[map->wall_count++] = (Wall){(Rectangle){50, 50, 150, 20}}; // Top-left wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){250, 50, 150, 20}}; // Top-right wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){50, 50, 20, 150}}; // Left-top wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){50, 250, 20, 150}}; // Left-bottom wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){200, 200, 100, 20}}; // Center horizontal wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){200, 200, 20, 100}}; // Center vertical wall
         
         // Exit to Map 1 (right)
         map->exits[map->exit_count++] = (Exit){(Rectangle){SCREEN_WIDTH - EXIT_WIDTH - 20, SCREEN_HEIGHT/2 - EXIT_HEIGHT/2, EXIT_WIDTH, EXIT_HEIGHT}, 1, 0};
@@ -97,14 +110,21 @@ void init_map(Map* map, int map_id) {
         map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH/2, SCREEN_HEIGHT/2}}; // Default spawn
         map->entrances[map->entrance_count++] = (Entrance){(Vector2){50, SCREEN_HEIGHT/2}}; // From Map 1 (left)
         map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH/2, 50}}; // From Map 2 (top)
+        
+        // Coins - placed in accessible areas
+        map->coins[map->coin_count++] = (Coin){(Vector2){150, 150}, false};
+        map->coins[map->coin_count++] = (Coin){(Vector2){350, 200}, false};
+        map->coins[map->coin_count++] = (Coin){(Vector2){150, 350}, false};
     }
     // Map 1: Top-right room
     else if (map_id == 1) {
-        // Walls
-        map->walls[map->wall_count++] = (Wall){(Rectangle){500, 100, 200, 30}}; // Top wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){500, 100, 30, 200}}; // Left wall (with gap for exit)
-        map->walls[map->wall_count++] = (Wall){(Rectangle){500, 270, 200, 30}}; // Bottom wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){670, 100, 30, 200}}; // Right wall
+        // Walls - create open layout with obstacles
+        map->walls[map->wall_count++] = (Wall){(Rectangle){450, 50, 150, 20}}; // Top-left wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){650, 50, 150, 20}}; // Top-right wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){450, 50, 20, 150}}; // Left-top wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){450, 250, 20, 150}}; // Left-bottom wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){600, 200, 100, 20}}; // Center horizontal wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){600, 200, 20, 100}}; // Center vertical wall
         
         // Exit to Map 0 (left)
         map->exits[map->exit_count++] = (Exit){(Rectangle){20, SCREEN_HEIGHT/2 - EXIT_HEIGHT/2, EXIT_WIDTH, EXIT_HEIGHT}, 0, 1};
@@ -115,14 +135,21 @@ void init_map(Map* map, int map_id) {
         map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH/2, SCREEN_HEIGHT/2}}; // Default spawn
         map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH - 50, SCREEN_HEIGHT/2}}; // From Map 0 (right)
         map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH/2, 50}}; // From Map 3 (top)
+        
+        // Coins - placed in accessible areas
+        map->coins[map->coin_count++] = (Coin){(Vector2){550, 150}, false};
+        map->coins[map->coin_count++] = (Coin){(Vector2){750, 200}, false};
+        map->coins[map->coin_count++] = (Coin){(Vector2){550, 350}, false};
     }
     // Map 2: Bottom-left room
     else if (map_id == 2) {
-        // Walls
-        map->walls[map->wall_count++] = (Wall){(Rectangle){100, 400, 200, 30}}; // Top wall (with gap for exit)
-        map->walls[map->wall_count++] = (Wall){(Rectangle){100, 400, 30, 200}}; // Left wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){100, 570, 200, 30}}; // Bottom wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){270, 400, 30, 200}}; // Right wall
+        // Walls - create open layout with obstacles
+        map->walls[map->wall_count++] = (Wall){(Rectangle){50, 400, 150, 20}}; // Top-left wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){250, 400, 150, 20}}; // Top-right wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){50, 400, 20, 150}}; // Left-top wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){50, 600, 20, 150}}; // Left-bottom wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){200, 550, 100, 20}}; // Center horizontal wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){200, 550, 20, 100}}; // Center vertical wall
         
         // Exit to Map 0 (top)
         map->exits[map->exit_count++] = (Exit){(Rectangle){SCREEN_WIDTH/2 - EXIT_WIDTH/2, 20, EXIT_WIDTH, EXIT_HEIGHT}, 0, 2};
@@ -133,14 +160,21 @@ void init_map(Map* map, int map_id) {
         map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH/2, SCREEN_HEIGHT/2}}; // Default spawn
         map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH/2, SCREEN_HEIGHT - 50}}; // From Map 0 (bottom)
         map->entrances[map->entrance_count++] = (Entrance){(Vector2){50, SCREEN_HEIGHT/2}}; // From Map 3 (left)
+        
+        // Coins - placed in accessible areas
+        map->coins[map->coin_count++] = (Coin){(Vector2){150, 500}, false};
+        map->coins[map->coin_count++] = (Coin){(Vector2){350, 450}, false};
+        map->coins[map->coin_count++] = (Coin){(Vector2){150, 350}, false};
     }
     // Map 3: Bottom-right room
     else if (map_id == 3) {
-        // Walls
-        map->walls[map->wall_count++] = (Wall){(Rectangle){500, 400, 200, 30}}; // Top wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){500, 400, 30, 200}}; // Left wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){500, 570, 200, 30}}; // Bottom wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){670, 400, 30, 200}}; // Right wall
+        // Walls - create open layout with obstacles
+        map->walls[map->wall_count++] = (Wall){(Rectangle){450, 400, 150, 20}}; // Top-left wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){650, 400, 150, 20}}; // Top-right wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){450, 400, 20, 150}}; // Left-top wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){450, 600, 20, 150}}; // Left-bottom wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){600, 550, 100, 20}}; // Center horizontal wall
+        map->walls[map->wall_count++] = (Wall){(Rectangle){600, 550, 20, 100}}; // Center vertical wall
         
         // Exit to Map 1 (top)
         map->exits[map->exit_count++] = (Exit){(Rectangle){SCREEN_WIDTH/2 - EXIT_WIDTH/2, 20, EXIT_WIDTH, EXIT_HEIGHT}, 1, 2};
@@ -151,6 +185,11 @@ void init_map(Map* map, int map_id) {
         map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH/2, SCREEN_HEIGHT/2}}; // Default spawn
         map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH/2, SCREEN_HEIGHT - 50}}; // From Map 1 (bottom)
         map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH - 50, SCREEN_HEIGHT/2}}; // From Map 2 (right)
+        
+        // Coins - placed in accessible areas
+        map->coins[map->coin_count++] = (Coin){(Vector2){550, 500}, false};
+        map->coins[map->coin_count++] = (Coin){(Vector2){750, 450}, false};
+        map->coins[map->coin_count++] = (Coin){(Vector2){550, 350}, false};
     }
 }
 
@@ -164,6 +203,7 @@ void game_init(GameState* game) {
     game->frame_count = 0;
     game->speed = PLAYER_SPEED;
     game->current_map_id = 0;
+    game->coins_collected = 0;
     
     // Initialize all maps
     for (int i = 0; i < NUM_MAPS; i++) {
@@ -263,6 +303,20 @@ void game_update(GameState* game) {
             break;
         }
     }
+    
+    // Check for coin collection
+    for (int i = 0; i < current_map->coin_count; i++) {
+        Coin* coin = &current_map->coins[i];
+        if (!coin->collected) {
+            float distance = sqrtf((game->position.x - coin->position.x) * (game->position.x - coin->position.x) +
+                                   (game->position.y - coin->position.y) * (game->position.y - coin->position.y));
+            if (distance < PLAYER_RADIUS + COIN_RADIUS) {
+                coin->collected = true;
+                game->coins_collected++;
+                printf("Coin collected! Total: %d\n", game->coins_collected);
+            }
+        }
+    }
 }
 
 // Render game
@@ -290,11 +344,23 @@ void game_render(GameState* game) {
         DrawText("→", center.x - 10, center.y - 10, 20, WHITE);
     }
     
+    // Draw coins
+    for (int i = 0; i < current_map->coin_count; i++) {
+        Coin* coin = &current_map->coins[i];
+        if (!coin->collected) {
+            // Draw coin as a golden circle
+            DrawCircleV(coin->position, COIN_RADIUS, GOLD);
+            DrawCircleV(coin->position, COIN_RADIUS - 2, YELLOW);
+            DrawCircleLinesV(coin->position, COIN_RADIUS, ORANGE);
+        }
+    }
+    
     // Draw UI information
     DrawText("WASD to move", 10, 10, 20, BLACK);
     DrawText(TextFormat("Map: %d", game->current_map_id), 10, 35, 20, BLACK);
-    DrawText(TextFormat("Position: (%.0f, %.0f)", game->position.x, game->position.y), 10, 60, 20, BLACK);
-    DrawFPS(10, 85);
+    DrawText(TextFormat("Coins: %d", game->coins_collected), 10, 60, 20, GOLD);
+    DrawText(TextFormat("Position: (%.0f, %.0f)", game->position.x, game->position.y), 10, 85, 20, BLACK);
+    DrawFPS(10, 110);
     
     // Draw player (circle)
     DrawCircleV(game->position, PLAYER_RADIUS, BLUE);
