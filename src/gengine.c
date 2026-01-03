@@ -1,4 +1,5 @@
 #include "../include/gengine.h"
+#include "../include/audio.h"
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -44,9 +45,10 @@ void gengine_destroy(GameEngine* engine) {
         engine->callbacks.cleanup(engine->game_data);
     }
     
-    // Close audio device if initialized
+    // Close audio device if initialized (only if not already closed by gengine_run)
     if (engine->initialized) {
-        CloseAudioDevice();
+        audio_cleanup();
+        engine->initialized = false;
     }
     
     // Close window if initialized
@@ -74,8 +76,7 @@ void gengine_run(GameEngine* engine) {
     SetTargetFPS(engine->config.target_fps);
     
     // Initialize audio
-    InitAudioDevice();
-    engine->initialized = true;
+    engine->initialized = audio_init();
     
     // Initialize game if callback provided
     if (engine->callbacks.init && engine->game_data) {
@@ -115,7 +116,10 @@ void gengine_run(GameEngine* engine) {
     }
     
     // Cleanup engine resources
-    CloseAudioDevice();
+    if (engine->initialized) {
+        audio_cleanup();
+        engine->initialized = false; // Mark as cleaned up so gengine_destroy() won't try again
+    }
     CloseWindow();
 }
 
