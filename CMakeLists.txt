@@ -17,6 +17,8 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 # Source files
 set(SOURCES
     src/main.c
+    src/gengine.c
+    src/game.c
 )
 
 # Include directories
