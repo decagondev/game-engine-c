@@ -25,6 +25,7 @@ struct GameState {
     Projectile* projectiles[MAX_PROJECTILES];
     int projectile_count;
     int projectile_cooldown;
+    GameMode game_mode;
 };
 
 GameState* state_create(void) {
@@ -64,6 +65,7 @@ void state_init(GameState* state) {
     state->projectile_count = 0;
     memset(state->projectiles, 0, sizeof(state->projectiles));
     state->projectile_cooldown = 0;
+    state->game_mode = GAME_MODE_2D;
     
     state->player = player_create();
     if (!state->player) {
@@ -325,5 +327,15 @@ void state_decrement_projectile_cooldown(GameState* state) {
     if (state->projectile_cooldown > 0) {
         state->projectile_cooldown--;
     }
+}
+
+GameMode state_get_game_mode(const GameState* state) {
+    if (!state) return GAME_MODE_2D;
+    return state->game_mode;
+}
+
+void state_set_game_mode(GameState* state, GameMode mode) {
+    if (!state) return;
+    state->game_mode = mode;
 }
 

@@ -41,6 +41,20 @@ void player_init(Player* player, Vector2 start_position);
 Vector2 player_get_position(const Player* player);
 
 /**
+ * Get the player's current angle (for 3D view).
+ * @param player The player
+ * @return Current angle in radians (0 = right, PI/2 = down)
+ */
+float player_get_angle(const Player* player);
+
+/**
+ * Set the player's angle.
+ * @param player The player
+ * @param angle Angle in radians
+ */
+void player_set_angle(Player* player, float angle);
+
+/**
  * Get the player's current health.
  * @param player The player
  * @return Current health

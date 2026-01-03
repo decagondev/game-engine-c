@@ -22,12 +22,14 @@ set(SOURCES
     src/audio.c
     src/map.c
     src/renderer.c
+    src/renderer3d.c
     src/player.c
     src/enemy.c
     src/item.c
     src/state.c
     src/highscore.c
     src/projectile.c
+    src/raycaster.c
 )
 
 # Include directories

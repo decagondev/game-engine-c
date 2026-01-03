@@ -14,6 +14,7 @@ struct Player {
     float health;
     float max_health;
     int invincibility_timer;
+    float angle;  // Viewing angle in radians (0 = right, PI/2 = down)
 };
 
 Player* player_create(void) {
@@ -34,11 +35,25 @@ void player_init(Player* player, Vector2 start_position) {
     player->health = MAX_HEALTH;
     player->max_health = MAX_HEALTH;
     player->invincibility_timer = 0;
+    player->angle = 0.0f;  // Start facing right
 }
 
 Vector2 player_get_position(const Player* player) {
     if (!player) return (Vector2){0, 0};
     return player->position;
+}
+
+float player_get_angle(const Player* player) {
+    if (!player) return 0.0f;
+    return player->angle;
+}
+
+void player_set_angle(Player* player, float angle) {
+    if (!player) return;
+    player->angle = angle;
+    // Normalize angle to [0, 2*PI)
+    while (player->angle < 0) player->angle += 2.0f * PI;
+    while (player->angle >= 2.0f * PI) player->angle -= 2.0f * PI;
 }
 
 float player_get_health(const Player* player) {

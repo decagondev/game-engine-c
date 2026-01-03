@@ -17,8 +17,14 @@ typedef enum {
     GAME_STATE_PLAYING,
     GAME_STATE_END,
     GAME_STATE_ENTER_NAME,
-    GAME_STATE_HIGH_SCORES
+    GAME_STATE_HIGH_SCORES,
+    GAME_STATE_MODE_SELECT
 } GameStateType;
+
+typedef enum {
+    GAME_MODE_2D,
+    GAME_MODE_3D
+} GameMode;
 
 typedef struct GameState GameState;
 
@@ -287,6 +293,20 @@ void state_set_projectile_cooldown(GameState* state, int cooldown);
  * @param state The state
  */
 void state_decrement_projectile_cooldown(GameState* state);
+
+/**
+ * Get the current game mode.
+ * @param state The state
+ * @return Current game mode
+ */
+GameMode state_get_game_mode(const GameState* state);
+
+/**
+ * Set the current game mode.
+ * @param state The state
+ * @param mode Game mode to set
+ */
+void state_set_game_mode(GameState* state, GameMode mode);
 
 #endif
 

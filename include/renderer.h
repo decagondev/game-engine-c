@@ -97,6 +97,13 @@ void renderer_draw_fps(int x, int y);
 void renderer_draw_start_screen(int frame_count, const HighScore* high_scores, int high_score_count);
 
 /**
+ * Draw the mode selection screen.
+ * @param frame_count Current frame count
+ * @param selected_mode Currently selected mode (0 = 2D, 1 = 3D)
+ */
+void renderer_draw_mode_select_screen(int frame_count, int selected_mode);
+
+/**
  * Draw the end/victory screen.
  * @param frame_count Current frame count
  * @param game_start_frame Frame count when game started

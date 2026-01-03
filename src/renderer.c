@@ -117,7 +117,7 @@ void renderer_draw_start_screen(int frame_count, const HighScore* high_scores, i
     renderer_draw_text_centered("Press H to view high scores", 380, 18, YELLOW);
     
     if ((frame_count / 30) % 2 == 0) {
-        renderer_draw_text_centered("Press SPACE or ENTER to start", 450, 28, YELLOW);
+        renderer_draw_text_centered("Press SPACE or ENTER to choose mode", 450, 28, YELLOW);
     }
     
     for (int i = 0; i < 5; i++) {
@@ -189,6 +189,38 @@ void renderer_draw_end_screen(int frame_count, int game_start_frame, int total_c
         DrawCircleV((Vector2){x, y}, COIN_RADIUS - 2, YELLOW);
         DrawCircleLinesV((Vector2){x, y}, COIN_RADIUS, ORANGE);
     }
+}
+
+void renderer_draw_mode_select_screen(int frame_count, int selected_mode) {
+    ClearBackground((Color){30, 30, 50, 255});
+    
+    renderer_draw_text_centered("SELECT GAME MODE", 150, 50, GOLD);
+    
+    // Draw 2D mode option
+    Color mode2d_color = (selected_mode == 0) ? YELLOW : WHITE;
+    Color mode2d_bg = (selected_mode == 0) ? (Color){60, 60, 80, 255} : (Color){40, 40, 60, 255};
+    
+    int mode2d_y = 250;
+    DrawRectangle(SCREEN_WIDTH/2 - 200, mode2d_y - 30, 400, 80, mode2d_bg);
+    DrawRectangleLinesEx((Rectangle){SCREEN_WIDTH/2 - 200, mode2d_y - 30, 400, 80}, 3, mode2d_color);
+    renderer_draw_text_centered("2D MODE", mode2d_y, 32, mode2d_color);
+    renderer_draw_text_centered("Top-down view with full map", mode2d_y + 35, 18, LIGHTGRAY);
+    
+    // Draw 3D mode option
+    Color mode3d_color = (selected_mode == 1) ? YELLOW : WHITE;
+    Color mode3d_bg = (selected_mode == 1) ? (Color){60, 60, 80, 255} : (Color){40, 40, 60, 255};
+    
+    int mode3d_y = 380;
+    DrawRectangle(SCREEN_WIDTH/2 - 200, mode3d_y - 30, 400, 80, mode3d_bg);
+    DrawRectangleLinesEx((Rectangle){SCREEN_WIDTH/2 - 200, mode3d_y - 30, 400, 80}, 3, mode3d_color);
+    renderer_draw_text_centered("3D MODE", mode3d_y, 32, mode3d_color);
+    renderer_draw_text_centered("First-person raycast view", mode3d_y + 35, 18, LIGHTGRAY);
+    
+    renderer_draw_text_centered("Use UP/DOWN arrows to select", 480, 20, LIGHTGRAY);
+    if ((frame_count / 30) % 2 == 0) {
+        renderer_draw_text_centered("Press ENTER to start", 510, 24, YELLOW);
+    }
+    renderer_draw_text_centered("Press ESC to go back", 540, 18, GRAY);
 }
 
 void renderer_draw_name_entry_screen(const char* player_name, int name_length, int frame_count, int coins_collected, float health_remaining) {

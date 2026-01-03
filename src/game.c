@@ -3,6 +3,7 @@
 #include "../include/audio.h"
 #include "../include/map.h"
 #include "../include/renderer.h"
+#include "../include/renderer3d.h"
 #include "../include/player.h"
 #include "../include/enemy.h"
 #include "../include/item.h"
@@ -21,6 +22,10 @@
 #define PLAYER_RADIUS 25.0f
 #define DAMAGE_PER_HIT 10.0f
 #define PROJECTILE_COOLDOWN 10  // frames between shots
+#define OBSTACLE_RADIUS 20.0f
+
+// Shared static variable for mode selection (shared between update and render callbacks)
+static int g_selected_mode = 0;
 
 struct CoinCollectorGame {
     GameState* state;
@@ -73,12 +78,35 @@ static void game_update_callback(void* game_data, float delta_time) {
     if (current_state == GAME_STATE_START) {
         if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
             audio_play_sound(AUDIO_SOUND_MENU);
-            state_set_type(state, GAME_STATE_PLAYING);
-            state_set_game_start_frame(state, state_get_frame_count(state));
+            state_set_type(state, GAME_STATE_MODE_SELECT);
         }
         if (IsKeyPressed(KEY_H)) {
             audio_play_sound(AUDIO_SOUND_MENU);
             state_set_type(state, GAME_STATE_HIGH_SCORES);
+        }
+        return;
+    }
+    
+    if (current_state == GAME_STATE_MODE_SELECT) {
+        if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) {
+            audio_play_sound(AUDIO_SOUND_MENU);
+            g_selected_mode = 0;
+        }
+        if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) {
+            audio_play_sound(AUDIO_SOUND_MENU);
+            g_selected_mode = 1;
+        }
+        if (IsKeyPressed(KEY_ENTER)) {
+            audio_play_sound(AUDIO_SOUND_MENU);
+            state_set_game_mode(state, (g_selected_mode == 0) ? GAME_MODE_2D : GAME_MODE_3D);
+            state_set_type(state, GAME_STATE_PLAYING);
+            state_set_game_start_frame(state, state_get_frame_count(state));
+            g_selected_mode = 0;  // Reset for next time
+        }
+        if (IsKeyPressed(KEY_ESCAPE)) {
+            audio_play_sound(AUDIO_SOUND_MENU);
+            state_set_type(state, GAME_STATE_START);
+            g_selected_mode = 0;  // Reset for next time
         }
         return;
     }
@@ -152,95 +180,168 @@ static void game_update_callback(void* game_data, float delta_time) {
     
     player_update(player);
     
-    // Handle shooting input
-    state_decrement_projectile_cooldown(state);
-    Vector2 player_pos = player_get_position(player);
-    
-    if (state_get_projectile_cooldown(state) <= 0) {
-        Vector2 shoot_direction = {0, 0};
-        bool should_shoot = false;
+    // Handle 3D mode rotation and movement
+    GameMode mode = state_get_game_mode(state);
+    if (mode == GAME_MODE_3D) {
+        // Mouse look for smooth rotation
+        static Vector2 last_mouse_pos = {0, 0};
+        Vector2 current_mouse_pos = GetMousePosition();
         
-        // Mouse shooting (primary method)
-        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            Vector2 mouse_pos = GetMousePosition();
-            shoot_direction.x = mouse_pos.x - player_pos.x;
-            shoot_direction.y = mouse_pos.y - player_pos.y;
-            should_shoot = true;
+        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+            float mouse_delta_x = current_mouse_pos.x - last_mouse_pos.x;
+            float rotation_sensitivity = 0.003f;
+            float new_angle = player_get_angle(player) + mouse_delta_x * rotation_sensitivity;
+            player_set_angle(player, new_angle);
         }
-        // Arrow key shooting (alternative)
-        else if (IsKeyPressed(KEY_SPACE)) {
-            if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) {
-                shoot_direction = (Vector2){0, -1};
-                should_shoot = true;
-            } else if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) {
-                shoot_direction = (Vector2){0, 1};
-                should_shoot = true;
-            } else if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) {
-                shoot_direction = (Vector2){-1, 0};
-                should_shoot = true;
-            } else if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) {
-                shoot_direction = (Vector2){1, 0};
+        last_mouse_pos = current_mouse_pos;
+        
+        // Keyboard rotation (alternative)
+        float rotation_speed = 0.05f;
+        if (IsKeyDown(KEY_Q)) {
+            float new_angle = player_get_angle(player) - rotation_speed;
+            player_set_angle(player, new_angle);
+        }
+        if (IsKeyDown(KEY_E)) {
+            float new_angle = player_get_angle(player) + rotation_speed;
+            player_set_angle(player, new_angle);
+        }
+        
+        // 3D movement (forward/backward relative to view angle)
+        Vector2 movement = {0.0f, 0.0f};
+        float angle = player_get_angle(player);
+        float speed = PLAYER_SPEED;
+        
+        if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP)) {
+            movement.x += cosf(angle) * speed;
+            movement.y += sinf(angle) * speed;
+        }
+        if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN)) {
+            movement.x -= cosf(angle) * speed;
+            movement.y -= sinf(angle) * speed;
+        }
+        if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT)) {
+            // Strafe left
+            movement.x += cosf(angle - PI/2) * speed;
+            movement.y += sinf(angle - PI/2) * speed;
+        }
+        if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) {
+            // Strafe right
+            movement.x += cosf(angle + PI/2) * speed;
+            movement.y += sinf(angle + PI/2) * speed;
+        }
+        
+        Vector2 current_pos = player_get_position(player);
+        Vector2 new_position = {
+            current_pos.x + movement.x,
+            current_pos.y + movement.y
+        };
+        
+        if (!player_check_wall_collision(player, new_position, current_map)) {
+            player_set_position(player, new_position);
+        }
+        
+        // Boundary checks
+        Vector2 pos = player_get_position(player);
+        if (pos.x < PLAYER_RADIUS) player_set_position(player, (Vector2){PLAYER_RADIUS, pos.y});
+        if (pos.x > SCREEN_WIDTH - PLAYER_RADIUS) player_set_position(player, (Vector2){SCREEN_WIDTH - PLAYER_RADIUS, pos.y});
+        if (pos.y < PLAYER_RADIUS) player_set_position(player, (Vector2){pos.x, PLAYER_RADIUS});
+        if (pos.y > SCREEN_HEIGHT - PLAYER_RADIUS) player_set_position(player, (Vector2){pos.x, SCREEN_HEIGHT - PLAYER_RADIUS});
+    } else {
+        // 2D mode movement (existing code)
+        player_update_movement(player, current_map);
+    }
+    
+    // Handle shooting input (only in 2D mode)
+    if (mode == GAME_MODE_2D) {
+        state_decrement_projectile_cooldown(state);
+        Vector2 player_pos = player_get_position(player);
+        
+        if (state_get_projectile_cooldown(state) <= 0) {
+            Vector2 shoot_direction = {0, 0};
+            bool should_shoot = false;
+            
+            // Mouse shooting (primary method)
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                Vector2 mouse_pos = GetMousePosition();
+                shoot_direction.x = mouse_pos.x - player_pos.x;
+                shoot_direction.y = mouse_pos.y - player_pos.y;
                 should_shoot = true;
             }
-        }
-        
-        if (should_shoot) {
-            float length = sqrtf(shoot_direction.x * shoot_direction.x + shoot_direction.y * shoot_direction.y);
-            if (length > 0.1f) {  // Only shoot if direction is meaningful
-                Projectile* proj = projectile_create(player_pos, shoot_direction);
-                if (proj && state_add_projectile(state, proj)) {
-                    state_set_projectile_cooldown(state, PROJECTILE_COOLDOWN);
-                    audio_play_sound(AUDIO_SOUND_MENU);  // Use menu sound for shooting
-                } else if (proj) {
-                    projectile_destroy(proj);  // Clean up if couldn't add
+            // Arrow key shooting (alternative)
+            else if (IsKeyPressed(KEY_SPACE)) {
+                if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) {
+                    shoot_direction = (Vector2){0, -1};
+                    should_shoot = true;
+                } else if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) {
+                    shoot_direction = (Vector2){0, 1};
+                    should_shoot = true;
+                } else if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) {
+                    shoot_direction = (Vector2){-1, 0};
+                    should_shoot = true;
+                } else if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) {
+                    shoot_direction = (Vector2){1, 0};
+                    should_shoot = true;
+                }
+            }
+            
+            if (should_shoot) {
+                float length = sqrtf(shoot_direction.x * shoot_direction.x + shoot_direction.y * shoot_direction.y);
+                if (length > 0.1f) {  // Only shoot if direction is meaningful
+                    Projectile* proj = projectile_create(player_pos, shoot_direction);
+                    if (proj && state_add_projectile(state, proj)) {
+                        state_set_projectile_cooldown(state, PROJECTILE_COOLDOWN);
+                        audio_play_sound(AUDIO_SOUND_MENU);  // Use menu sound for shooting
+                    } else if (proj) {
+                        projectile_destroy(proj);  // Clean up if couldn't add
+                    }
                 }
             }
         }
-    }
-    
-    // Update projectiles
-    int projectile_count;
-    Projectile** projectiles = state_get_projectiles(state, &projectile_count);
-    for (int i = projectile_count - 1; i >= 0; i--) {
-        if (!projectiles[i] || !projectile_is_active(projectiles[i])) {
-            if (projectiles[i]) {
-                state_remove_projectile(state, i);
+        
+        // Update projectiles
+        int projectile_count;
+        Projectile** projectiles = state_get_projectiles(state, &projectile_count);
+        for (int i = projectile_count - 1; i >= 0; i--) {
+            if (!projectiles[i] || !projectile_is_active(projectiles[i])) {
+                if (projectiles[i]) {
+                    state_remove_projectile(state, i);
+                }
+                continue;
             }
-            continue;
-        }
-        
-        projectile_update(projectiles[i]);
-        
-        if (!projectile_is_active(projectiles[i])) {
-            state_remove_projectile(state, i);
-            continue;
-        }
-        
-        // Check collision with walls
-        int wall_count;
-        const Wall* walls = map_get_walls(current_map, &wall_count);
-        bool hit_wall = false;
-        for (int j = 0; j < wall_count; j++) {
-            if (projectile_check_rect_collision(projectiles[i], walls[j].rect)) {
-                hit_wall = true;
-                break;
-            }
-        }
-        
-        if (hit_wall) {
-            state_remove_projectile(state, i);
-            continue;
-        }
-        
-        // Check collision with enemies
-        Vector2 proj_pos = projectile_get_position(projectiles[i]);
-        for (int j = 0; j < current_map->obstacle_count; j++) {
-            Obstacle* obstacle = &current_map->obstacles[j];
-            if (projectile_check_circle_collision(projectiles[i], obstacle->position, OBSTACLE_RADIUS)) {
-                // Damage enemy (for now, just remove projectile)
-                // In the future, we could add enemy health system
+            
+            projectile_update(projectiles[i]);
+            
+            if (!projectile_is_active(projectiles[i])) {
                 state_remove_projectile(state, i);
-                break;
+                continue;
+            }
+            
+            // Check collision with walls
+            int wall_count;
+            const Wall* walls = map_get_walls(current_map, &wall_count);
+            bool hit_wall = false;
+            for (int j = 0; j < wall_count; j++) {
+                if (projectile_check_rect_collision(projectiles[i], walls[j].rect)) {
+                    hit_wall = true;
+                    break;
+                }
+            }
+            
+            if (hit_wall) {
+                state_remove_projectile(state, i);
+                continue;
+            }
+            
+            // Check collision with enemies
+            Vector2 proj_pos = projectile_get_position(projectiles[i]);
+            for (int j = 0; j < current_map->obstacle_count; j++) {
+                Obstacle* obstacle = &current_map->obstacles[j];
+                if (projectile_check_circle_collision(projectiles[i], obstacle->position, OBSTACLE_RADIUS)) {
+                    // Damage enemy (for now, just remove projectile)
+                    // In the future, we could add enemy health system
+                    state_remove_projectile(state, i);
+                    break;
+                }
             }
         }
     }
@@ -261,8 +362,8 @@ static void game_update_callback(void* game_data, float delta_time) {
         }
     }
     
-    player_update_movement(player, current_map);
-    
+    // Handle map transitions (works in both modes)
+    Vector2 player_pos = player_get_position(player);
     int target_map_id, target_entrance_id;
     if (player_check_exit_collision(player, current_map, &target_map_id, &target_entrance_id)) {
         state_set_current_map_id(state, target_map_id);
@@ -281,9 +382,10 @@ static void game_update_callback(void* game_data, float delta_time) {
         player_set_position(player, new_pos);
         
         printf("Entered map %d\n", target_map_id);
+        player_pos = player_get_position(player);  // Update after map change
     }
     
-    player_pos = player_get_position(player);
+    // Enemy collision detection (works in both modes)
     for (int i = 0; i < current_map->obstacle_count; i++) {
         Obstacle* obstacle = &current_map->obstacles[i];
         
@@ -367,6 +469,11 @@ static void game_render_callback(void* game_data) {
         return;
     }
     
+    if (current_state == GAME_STATE_MODE_SELECT) {
+        renderer_draw_mode_select_screen(state_get_frame_count(state), g_selected_mode);
+        return;
+    }
+    
     if (current_state == GAME_STATE_END) {
         Player* player = state_get_player(state);
         if (!player) return;
@@ -403,14 +510,48 @@ static void game_render_callback(void* game_data) {
     Map* current_map = state_get_current_map(state);
     if (!current_map) return;
     
-    int projectile_count;
-    Projectile** projectiles = state_get_projectiles(state, &projectile_count);
+    GameMode mode = state_get_game_mode(state);
     
-    renderer_draw_game_screen(current_map, player_get_position(player),
-                             player_is_invincible(player), player_get_invincibility_timer(player),
-                             player_get_health(player), player_get_max_health(player),
-                             state_get_current_map_id(state), state_get_coins_collected(state),
-                             projectiles, projectile_count);
+    if (mode == GAME_MODE_3D) {
+        // Collect enemy positions and colors for 3D rendering
+        Vector2 enemy_positions[50];
+        Color enemy_colors[50];
+        int enemy_count = 0;
+        
+        for (int i = 0; i < current_map->obstacle_count && enemy_count < 50; i++) {
+            enemy_positions[enemy_count] = current_map->obstacles[i].position;
+            enemy_colors[enemy_count] = current_map->obstacles[i].color;
+            enemy_count++;
+        }
+        
+        // Collect coin positions and collected status for 3D rendering
+        Vector2 coin_positions[50];
+        bool coin_collected[50];
+        int coin_count = 0;
+        
+        for (int i = 0; i < current_map->coin_count && coin_count < 50; i++) {
+            coin_positions[coin_count] = current_map->coins[i].position;
+            coin_collected[coin_count] = current_map->coins[i].collected;
+            coin_count++;
+        }
+        
+        // Render 3D view
+        renderer3d_render(current_map, player_get_position(player), player_get_angle(player),
+                         player_get_health(player), player_get_max_health(player),
+                         state_get_current_map_id(state), state_get_coins_collected(state),
+                         enemy_positions, enemy_count, enemy_colors,
+                         coin_positions, coin_count, coin_collected);
+    } else {
+        // Render 2D view
+        int projectile_count;
+        Projectile** projectiles = state_get_projectiles(state, &projectile_count);
+        
+        renderer_draw_game_screen(current_map, player_get_position(player),
+                                 player_is_invincible(player), player_get_invincibility_timer(player),
+                                 player_get_health(player), player_get_max_health(player),
+                                 state_get_current_map_id(state), state_get_coins_collected(state),
+                                 projectiles, projectile_count);
+    }
 }
 
 /**
