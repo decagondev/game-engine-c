@@ -19,6 +19,9 @@ set(SOURCES
     src/main.c
     src/gengine.c
     src/game.c
+    src/audio.c
+    src/map.c
+    src/renderer.c
 )
 
 # Include directories

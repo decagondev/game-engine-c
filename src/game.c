@@ -1,5 +1,8 @@
 #include "../include/game.h"
 #include "../include/gengine.h"
+#include "../include/audio.h"
+#include "../include/map.h"
+#include "../include/renderer.h"
 #include "raylib.h"
 #include <stdio.h>
 #include <stdbool.h>
@@ -7,59 +10,12 @@
 #include <string.h>
 #include <stdlib.h>
 
-// Map structures
-typedef struct {
-    Rectangle rect;
-} Wall;
-
-typedef struct {
-    Rectangle rect;
-    int target_map_id;
-    int target_entrance_id;
-} Exit;
-
-typedef struct {
-    Vector2 position;
-} Entrance;
-
-typedef struct {
-    Vector2 position;
-    bool collected;
-} Coin;
-
-typedef struct {
-    Vector2 position;
-    Vector2 velocity;
-    float radius;
-    int direction_change_timer;
-    Color color;
-} Obstacle;
-
-#define MAX_WALLS 20
-#define MAX_EXITS 4
-#define MAX_ENTRANCES 4
-#define MAX_COINS 10
-#define MAX_OBSTACLES 5
+// Map structures and constants are now in map.h
+// Using NUM_MAPS from map.h
 #define NUM_MAPS 4
-#define COIN_RADIUS 15.0f
-#define OBSTACLE_RADIUS 20.0f
+// Game-specific constants
 #define OBSTACLE_SPEED 2.0f
-#define OBSTACLE_DIRECTION_CHANGE_FRAMES 120  // Change direction every 2 seconds at 60fps
-
-typedef struct {
-    int map_id;
-    Wall walls[MAX_WALLS];
-    int wall_count;
-    Exit exits[MAX_EXITS];
-    int exit_count;
-    Entrance entrances[MAX_ENTRANCES];
-    int entrance_count;
-    Coin coins[MAX_COINS];
-    int coin_count;
-    Obstacle obstacles[MAX_OBSTACLES];
-    int obstacle_count;
-    Color bg_color;
-} Map;
+#define OBSTACLE_DIRECTION_CHANGE_FRAMES 120
 
 // High score structure
 #define MAX_HIGH_SCORES 10
@@ -122,345 +78,9 @@ struct CoinCollectorGame {
 #define DAMAGE_PER_HIT 10.0f
 #define INVINCIBILITY_FRAMES 60  // 1 second of invincibility at 60fps
 
-// Audio settings
-#define SAMPLE_RATE 44100
-#define BLIP_DURATION 0.1f  // 100ms blip sounds
+// Note: Map initialization is now in map.c module (map_init function)
 
-// Helper function to check circle-rectangle collision
-bool CheckCircleRectCollision(Vector2 circle_pos, float radius, Rectangle rect) {
-    float closest_x = fmaxf(rect.x, fminf(circle_pos.x, rect.x + rect.width));
-    float closest_y = fmaxf(rect.y, fminf(circle_pos.y, rect.y + rect.height));
-    
-    float distance_x = circle_pos.x - closest_x;
-    float distance_y = circle_pos.y - closest_y;
-    
-    return (distance_x * distance_x + distance_y * distance_y) < (radius * radius);
-}
-
-// Check if a position is valid (not colliding with walls)
-bool IsValidSpawnPosition(Vector2 position, float radius, Map* map) {
-    // Check screen bounds
-    if (position.x < radius || position.x > SCREEN_WIDTH - radius ||
-        position.y < radius || position.y > SCREEN_HEIGHT - radius) {
-        return false;
-    }
-    
-    // Check wall collisions
-    for (int i = 0; i < map->wall_count; i++) {
-        if (CheckCircleRectCollision(position, radius, map->walls[i].rect)) {
-            return false;
-        }
-    }
-    
-    return true;
-}
-
-// Find a valid spawn position near the desired position
-Vector2 FindValidSpawnPosition(Vector2 desired_pos, float radius, Map* map) {
-    // If desired position is valid, use it
-    if (IsValidSpawnPosition(desired_pos, radius, map)) {
-        return desired_pos;
-    }
-    
-    // Try positions in a spiral pattern around the desired position
-    float search_radius = radius * 2;
-    int max_attempts = 50;
-    
-    for (int attempt = 0; attempt < max_attempts; attempt++) {
-        // Try positions in a circle around desired position
-        for (int angle_step = 0; angle_step < 8; angle_step++) {
-            float angle = (angle_step * 45.0f) * DEG2RAD;
-            Vector2 test_pos = {
-                desired_pos.x + cosf(angle) * search_radius,
-                desired_pos.y + sinf(angle) * search_radius
-            };
-            
-            if (IsValidSpawnPosition(test_pos, radius, map)) {
-                return test_pos;
-            }
-        }
-        
-        // Increase search radius
-        search_radius += radius;
-    }
-    
-    // Fallback: return a safe default position (center of screen)
-    Vector2 safe_pos = {SCREEN_WIDTH / 2.0f, SCREEN_HEIGHT / 2.0f};
-    return safe_pos;
-}
-
-// Initialize a map
-void init_map(Map* map, int map_id) {
-    map->map_id = map_id;
-    map->wall_count = 0;
-    map->exit_count = 0;
-    map->entrance_count = 0;
-    map->coin_count = 0;
-    map->obstacle_count = 0;
-    
-    // Set background color based on map
-    switch(map_id) {
-        case 0: map->bg_color = (Color){240, 240, 255, 255}; break; // Light blue
-        case 1: map->bg_color = (Color){255, 240, 240, 255}; break; // Light red
-        case 2: map->bg_color = (Color){240, 255, 240, 255}; break; // Light green
-        case 3: map->bg_color = (Color){255, 255, 240, 255}; break; // Light yellow
-        default: map->bg_color = RAYWHITE; break;
-    }
-    
-    // Map 0: Top-left room
-    if (map_id == 0) {
-        // Walls - create open layout with obstacles
-        map->walls[map->wall_count++] = (Wall){(Rectangle){50, 50, 150, 20}}; // Top-left wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){250, 50, 150, 20}}; // Top-right wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){50, 50, 20, 150}}; // Left-top wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){50, 250, 20, 150}}; // Left-bottom wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){200, 200, 100, 20}}; // Center horizontal wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){200, 200, 20, 100}}; // Center vertical wall
-        
-        // Exit to Map 1 (right)
-        map->exits[map->exit_count++] = (Exit){(Rectangle){SCREEN_WIDTH - EXIT_WIDTH - 20, SCREEN_HEIGHT/2 - EXIT_HEIGHT/2, EXIT_WIDTH, EXIT_HEIGHT}, 1, 0};
-        // Exit to Map 2 (bottom)
-        map->exits[map->exit_count++] = (Exit){(Rectangle){SCREEN_WIDTH/2 - EXIT_WIDTH/2, SCREEN_HEIGHT - EXIT_HEIGHT - 20, EXIT_WIDTH, EXIT_HEIGHT}, 2, 0};
-        
-        // Entrances
-        map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH/2, SCREEN_HEIGHT/2}}; // Default spawn
-        map->entrances[map->entrance_count++] = (Entrance){(Vector2){50, SCREEN_HEIGHT/2}}; // From Map 1 (left)
-        map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH/2, 50}}; // From Map 2 (top)
-        
-        // Coins - placed in accessible areas
-        map->coins[map->coin_count++] = (Coin){(Vector2){150, 150}, false};
-        map->coins[map->coin_count++] = (Coin){(Vector2){350, 200}, false};
-        map->coins[map->coin_count++] = (Coin){(Vector2){150, 350}, false};
-        
-        // Obstacles
-        map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){300, 250}, (Vector2){OBSTACLE_SPEED, OBSTACLE_SPEED}, OBSTACLE_RADIUS, 0, RED};
-        map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){200, 300}, (Vector2){-OBSTACLE_SPEED, OBSTACLE_SPEED}, OBSTACLE_RADIUS, 60, RED};
-        
-        // Validate and adjust spawn positions
-        for (int i = 0; i < map->entrance_count; i++) {
-            Vector2 valid_pos = FindValidSpawnPosition(map->entrances[i].position, PLAYER_RADIUS, map);
-            if (valid_pos.x != map->entrances[i].position.x || valid_pos.y != map->entrances[i].position.y) {
-                printf("Map %d: Adjusted entrance %d from (%.0f, %.0f) to (%.0f, %.0f)\n", 
-                       map_id, i, map->entrances[i].position.x, map->entrances[i].position.y, valid_pos.x, valid_pos.y);
-            }
-            map->entrances[i].position = valid_pos;
-        }
-        
-        for (int i = 0; i < map->obstacle_count; i++) {
-            Vector2 valid_pos = FindValidSpawnPosition(map->obstacles[i].position, OBSTACLE_RADIUS, map);
-            if (valid_pos.x != map->obstacles[i].position.x || valid_pos.y != map->obstacles[i].position.y) {
-                printf("Map %d: Adjusted obstacle %d from (%.0f, %.0f) to (%.0f, %.0f)\n", 
-                       map_id, i, map->obstacles[i].position.x, map->obstacles[i].position.y, valid_pos.x, valid_pos.y);
-            }
-            map->obstacles[i].position = valid_pos;
-        }
-    }
-    // Map 1: Top-right room
-    else if (map_id == 1) {
-        // Walls - create open layout with obstacles
-        map->walls[map->wall_count++] = (Wall){(Rectangle){450, 50, 150, 20}}; // Top-left wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){650, 50, 150, 20}}; // Top-right wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){450, 50, 20, 150}}; // Left-top wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){450, 250, 20, 150}}; // Left-bottom wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){600, 200, 100, 20}}; // Center horizontal wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){600, 200, 20, 100}}; // Center vertical wall
-        
-        // Exit to Map 0 (left)
-        map->exits[map->exit_count++] = (Exit){(Rectangle){20, SCREEN_HEIGHT/2 - EXIT_HEIGHT/2, EXIT_WIDTH, EXIT_HEIGHT}, 0, 1};
-        // Exit to Map 3 (bottom)
-        map->exits[map->exit_count++] = (Exit){(Rectangle){SCREEN_WIDTH/2 - EXIT_WIDTH/2, SCREEN_HEIGHT - EXIT_HEIGHT - 20, EXIT_WIDTH, EXIT_HEIGHT}, 3, 0};
-        
-        // Entrances
-        map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH/2, SCREEN_HEIGHT/2}}; // Default spawn
-        map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH - 50, SCREEN_HEIGHT/2}}; // From Map 0 (right)
-        map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH/2, 50}}; // From Map 3 (top)
-        
-        // Coins - placed in accessible areas
-        map->coins[map->coin_count++] = (Coin){(Vector2){550, 150}, false};
-        map->coins[map->coin_count++] = (Coin){(Vector2){750, 200}, false};
-        map->coins[map->coin_count++] = (Coin){(Vector2){550, 350}, false};
-        
-        // Obstacles
-        map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){600, 250}, (Vector2){OBSTACLE_SPEED, -OBSTACLE_SPEED}, OBSTACLE_RADIUS, 30, RED};
-        map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){700, 300}, (Vector2){-OBSTACLE_SPEED, OBSTACLE_SPEED}, OBSTACLE_RADIUS, 90, RED};
-        
-        // Validate and adjust spawn positions
-        for (int i = 0; i < map->entrance_count; i++) {
-            Vector2 valid_pos = FindValidSpawnPosition(map->entrances[i].position, PLAYER_RADIUS, map);
-            if (valid_pos.x != map->entrances[i].position.x || valid_pos.y != map->entrances[i].position.y) {
-                printf("Map %d: Adjusted entrance %d from (%.0f, %.0f) to (%.0f, %.0f)\n", 
-                       map_id, i, map->entrances[i].position.x, map->entrances[i].position.y, valid_pos.x, valid_pos.y);
-            }
-            map->entrances[i].position = valid_pos;
-        }
-        
-        for (int i = 0; i < map->obstacle_count; i++) {
-            Vector2 valid_pos = FindValidSpawnPosition(map->obstacles[i].position, OBSTACLE_RADIUS, map);
-            if (valid_pos.x != map->obstacles[i].position.x || valid_pos.y != map->obstacles[i].position.y) {
-                printf("Map %d: Adjusted obstacle %d from (%.0f, %.0f) to (%.0f, %.0f)\n", 
-                       map_id, i, map->obstacles[i].position.x, map->obstacles[i].position.y, valid_pos.x, valid_pos.y);
-            }
-            map->obstacles[i].position = valid_pos;
-        }
-    }
-    // Map 2: Bottom-left room
-    else if (map_id == 2) {
-        // Walls - create open layout with obstacles
-        map->walls[map->wall_count++] = (Wall){(Rectangle){50, 400, 150, 20}}; // Top-left wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){250, 400, 150, 20}}; // Top-right wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){50, 400, 20, 150}}; // Left-top wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){50, 600, 20, 150}}; // Left-bottom wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){200, 550, 100, 20}}; // Center horizontal wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){200, 550, 20, 100}}; // Center vertical wall
-        
-        // Exit to Map 0 (top)
-        map->exits[map->exit_count++] = (Exit){(Rectangle){SCREEN_WIDTH/2 - EXIT_WIDTH/2, 20, EXIT_WIDTH, EXIT_HEIGHT}, 0, 2};
-        // Exit to Map 3 (right)
-        map->exits[map->exit_count++] = (Exit){(Rectangle){SCREEN_WIDTH - EXIT_WIDTH - 20, SCREEN_HEIGHT/2 - EXIT_HEIGHT/2, EXIT_WIDTH, EXIT_HEIGHT}, 3, 1};
-        
-        // Entrances
-        map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH/2, SCREEN_HEIGHT/2}}; // Default spawn
-        map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH/2, SCREEN_HEIGHT - 50}}; // From Map 0 (bottom)
-        map->entrances[map->entrance_count++] = (Entrance){(Vector2){50, SCREEN_HEIGHT/2}}; // From Map 3 (left)
-        
-        // Coins - placed in accessible areas
-        map->coins[map->coin_count++] = (Coin){(Vector2){150, 500}, false};
-        map->coins[map->coin_count++] = (Coin){(Vector2){350, 450}, false};
-        map->coins[map->coin_count++] = (Coin){(Vector2){150, 350}, false};
-        
-        // Obstacles
-        map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){300, 500}, (Vector2){OBSTACLE_SPEED, OBSTACLE_SPEED}, OBSTACLE_RADIUS, 45, RED};
-        map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){200, 450}, (Vector2){-OBSTACLE_SPEED, OBSTACLE_SPEED}, OBSTACLE_RADIUS, 120, RED};
-        
-        // Validate and adjust spawn positions
-        for (int i = 0; i < map->entrance_count; i++) {
-            Vector2 valid_pos = FindValidSpawnPosition(map->entrances[i].position, PLAYER_RADIUS, map);
-            if (valid_pos.x != map->entrances[i].position.x || valid_pos.y != map->entrances[i].position.y) {
-                printf("Map %d: Adjusted entrance %d from (%.0f, %.0f) to (%.0f, %.0f)\n", 
-                       map_id, i, map->entrances[i].position.x, map->entrances[i].position.y, valid_pos.x, valid_pos.y);
-            }
-            map->entrances[i].position = valid_pos;
-        }
-        
-        for (int i = 0; i < map->obstacle_count; i++) {
-            Vector2 valid_pos = FindValidSpawnPosition(map->obstacles[i].position, OBSTACLE_RADIUS, map);
-            if (valid_pos.x != map->obstacles[i].position.x || valid_pos.y != map->obstacles[i].position.y) {
-                printf("Map %d: Adjusted obstacle %d from (%.0f, %.0f) to (%.0f, %.0f)\n", 
-                       map_id, i, map->obstacles[i].position.x, map->obstacles[i].position.y, valid_pos.x, valid_pos.y);
-            }
-            map->obstacles[i].position = valid_pos;
-        }
-    }
-    // Map 3: Bottom-right room
-    else if (map_id == 3) {
-        // Walls - create open layout with obstacles
-        map->walls[map->wall_count++] = (Wall){(Rectangle){450, 400, 150, 20}}; // Top-left wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){650, 400, 150, 20}}; // Top-right wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){450, 400, 20, 150}}; // Left-top wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){450, 600, 20, 150}}; // Left-bottom wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){600, 550, 100, 20}}; // Center horizontal wall
-        map->walls[map->wall_count++] = (Wall){(Rectangle){600, 550, 20, 100}}; // Center vertical wall
-        
-        // Exit to Map 1 (top)
-        map->exits[map->exit_count++] = (Exit){(Rectangle){SCREEN_WIDTH/2 - EXIT_WIDTH/2, 20, EXIT_WIDTH, EXIT_HEIGHT}, 1, 2};
-        // Exit to Map 2 (left)
-        map->exits[map->exit_count++] = (Exit){(Rectangle){20, SCREEN_HEIGHT/2 - EXIT_HEIGHT/2, EXIT_WIDTH, EXIT_HEIGHT}, 2, 2};
-        
-        // Entrances
-        map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH/2, SCREEN_HEIGHT/2}}; // Default spawn
-        map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH/2, SCREEN_HEIGHT - 50}}; // From Map 1 (bottom)
-        map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH - 50, SCREEN_HEIGHT/2}}; // From Map 2 (right)
-        
-        // Coins - placed in accessible areas
-        map->coins[map->coin_count++] = (Coin){(Vector2){550, 500}, false};
-        map->coins[map->coin_count++] = (Coin){(Vector2){750, 450}, false};
-        map->coins[map->coin_count++] = (Coin){(Vector2){550, 350}, false};
-        
-        // Obstacles
-        map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){600, 500}, (Vector2){OBSTACLE_SPEED, -OBSTACLE_SPEED}, OBSTACLE_RADIUS, 75, RED};
-        map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){700, 450}, (Vector2){-OBSTACLE_SPEED, -OBSTACLE_SPEED}, OBSTACLE_RADIUS, 15, RED};
-        
-        // Validate and adjust spawn positions
-        for (int i = 0; i < map->entrance_count; i++) {
-            Vector2 valid_pos = FindValidSpawnPosition(map->entrances[i].position, PLAYER_RADIUS, map);
-            if (valid_pos.x != map->entrances[i].position.x || valid_pos.y != map->entrances[i].position.y) {
-                printf("Map %d: Adjusted entrance %d from (%.0f, %.0f) to (%.0f, %.0f)\n", 
-                       map_id, i, map->entrances[i].position.x, map->entrances[i].position.y, valid_pos.x, valid_pos.y);
-            }
-            map->entrances[i].position = valid_pos;
-        }
-        
-        for (int i = 0; i < map->obstacle_count; i++) {
-            Vector2 valid_pos = FindValidSpawnPosition(map->obstacles[i].position, OBSTACLE_RADIUS, map);
-            if (valid_pos.x != map->obstacles[i].position.x || valid_pos.y != map->obstacles[i].position.y) {
-                printf("Map %d: Adjusted obstacle %d from (%.0f, %.0f) to (%.0f, %.0f)\n", 
-                       map_id, i, map->obstacles[i].position.x, map->obstacles[i].position.y, valid_pos.x, valid_pos.y);
-            }
-            map->obstacles[i].position = valid_pos;
-        }
-    }
-}
-
-// Generate a simple blip sound (sine wave tone)
-Wave GenerateBlip(float frequency, float duration, float volume) {
-    int sampleCount = (int)(SAMPLE_RATE * duration);
-    float* samples = (float*)malloc(sampleCount * sizeof(float) * 2); // Stereo
-    
-    for (int i = 0; i < sampleCount; i++) {
-        float t = (float)i / SAMPLE_RATE;
-        // Generate sine wave with envelope (fade in/out)
-        float envelope = 1.0f;
-        if (i < sampleCount * 0.1f) {
-            envelope = (float)i / (sampleCount * 0.1f); // Fade in
-        } else if (i > sampleCount * 0.9f) {
-            envelope = 1.0f - ((float)(i - sampleCount * 0.9f) / (sampleCount * 0.1f)); // Fade out
-        }
-        
-        float sample = sinf(2.0f * PI * frequency * t) * volume * envelope;
-        samples[i * 2] = sample;     // Left channel
-        samples[i * 2 + 1] = sample; // Right channel
-    }
-    
-    Wave wave = {
-        .frameCount = sampleCount,
-        .sampleRate = SAMPLE_RATE,
-        .sampleSize = 32, // 16-bit per channel, stereo = 32 bits
-        .channels = 2,
-        .data = samples
-    };
-    
-    return wave;
-}
-
-// Play a blip sound
-void PlayBlip(float frequency, float duration, float volume) {
-    Wave wave = GenerateBlip(frequency, duration, volume);
-    Sound sound = LoadSoundFromWave(wave);
-    PlaySound(sound);
-    UnloadWave(wave);
-    // Note: Sound will be automatically cleaned up when it finishes playing
-    // For short blips, this works fine. For longer sounds, you'd want to track them.
-}
-
-// Play different types of blip sounds
-void PlayCoinSound(void) {
-    PlayBlip(800.0f, 0.1f, 0.5f); // High pitch, short
-}
-
-void PlayDamageSound(void) {
-    PlayBlip(200.0f, 0.15f, 0.6f); // Low pitch, longer
-}
-
-void PlayVictorySound(void) {
-    // Play a sequence of ascending tones
-    PlayBlip(523.25f, 0.1f, 0.4f); // C
-    // Note: In a real implementation, you'd want to wait or use a sound queue
-    // For now, we'll just play one tone
-}
-
-void PlayMenuBlip(void) {
-    PlayBlip(400.0f, 0.08f, 0.3f); // Medium pitch, very short
-}
+// Audio functions are now in audio.c module
 
 // Check if all coins are collected
 bool all_coins_collected(GameState* game) {
@@ -586,7 +206,7 @@ static void game_init_callback(void* game_data) {
     
     // Initialize all maps
     for (int i = 0; i < NUM_MAPS; i++) {
-        init_map(&state->maps[i], i);
+        map_init(&state->maps[i], i);
     }
     
     // Calculate total coins
@@ -625,12 +245,12 @@ static void game_update_callback(void* game_data, float delta_time) {
     // Handle state transitions
     if (state->state == GAME_STATE_START) {
         if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
-            PlayMenuBlip();
+            audio_play_sound(AUDIO_SOUND_MENU);
             state->state = GAME_STATE_PLAYING;
             state->game_start_frame = state->frame_count; // Track when game starts
         }
         if (IsKeyPressed(KEY_H)) {
-            PlayMenuBlip();
+            audio_play_sound(AUDIO_SOUND_MENU);
             state->state = GAME_STATE_HIGH_SCORES;
         }
         return;
@@ -638,7 +258,7 @@ static void game_update_callback(void* game_data, float delta_time) {
     
     if (state->state == GAME_STATE_HIGH_SCORES) {
         if (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_H) || IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
-            PlayMenuBlip();
+            audio_play_sound(AUDIO_SOUND_MENU);
             state->state = GAME_STATE_START;
         }
         return;
@@ -666,7 +286,7 @@ static void game_update_callback(void* game_data, float delta_time) {
         
         // Submit name
         if (IsKeyPressed(KEY_ENTER)) {
-            PlayMenuBlip();
+            audio_play_sound(AUDIO_SOUND_MENU);
             if (state->name_char_count > 0) {
                 // Add high score with name
                 add_high_score(state, state->player_name, 
@@ -807,8 +427,10 @@ static void game_update_callback(void* game_data, float delta_time) {
     
     // Check wall collisions
     bool can_move = true;
-    for (int i = 0; i < current_map->wall_count; i++) {
-        if (CheckCircleRectCollision(new_position, PLAYER_RADIUS, current_map->walls[i].rect)) {
+    int wall_count;
+    const Wall* walls = map_get_walls(current_map, &wall_count);
+    for (int i = 0; i < wall_count; i++) {
+        if (map_check_circle_rect_collision(new_position, PLAYER_RADIUS, walls[i].rect)) {
             can_move = false;
             break;
         }
@@ -834,18 +456,22 @@ static void game_update_callback(void* game_data, float delta_time) {
     }
     
     // Check for exit collision
-    for (int i = 0; i < current_map->exit_count; i++) {
-        Exit* exit = &current_map->exits[i];
-        if (CheckCircleRectCollision(state->position, PLAYER_RADIUS, exit->rect)) {
+    int exit_count;
+    const Exit* exits = map_get_exits(current_map, &exit_count);
+    for (int i = 0; i < exit_count; i++) {
+        const Exit* exit = &exits[i];
+        if (map_check_circle_rect_collision(state->position, PLAYER_RADIUS, exit->rect)) {
             // Switch to target map
             state->current_map_id = exit->target_map_id;
             Map* target_map = &state->maps[exit->target_map_id];
             
             // Move player to target entrance
-            if (exit->target_entrance_id < target_map->entrance_count) {
-                state->position = target_map->entrances[exit->target_entrance_id].position;
-            } else {
-                state->position = target_map->entrances[0].position;
+            int entrance_count;
+            const Entrance* entrances = map_get_entrances(target_map, &entrance_count);
+            if (exit->target_entrance_id < entrance_count) {
+                state->position = entrances[exit->target_entrance_id].position;
+            } else if (entrance_count > 0) {
+                state->position = entrances[0].position;
             }
             
             printf("Entered map %d\n", exit->target_map_id);
@@ -862,7 +488,7 @@ static void game_update_callback(void* game_data, float delta_time) {
             // Take damage
             state->health -= DAMAGE_PER_HIT;
             state->invincibility_timer = INVINCIBILITY_FRAMES;
-            PlayDamageSound();
+            audio_play_sound(AUDIO_SOUND_DAMAGE);
             printf("Hit! Health: %.0f/%.0f\n", state->health, state->max_health);
             
             // Check if player died
@@ -883,7 +509,7 @@ static void game_update_callback(void* game_data, float delta_time) {
                 }
                 // Reset all obstacles to initial positions
                 for (int j = 0; j < NUM_MAPS; j++) {
-                    init_map(&state->maps[j], j);
+                    map_init(&state->maps[j], j);
                 }
                 break;
             }
@@ -899,7 +525,7 @@ static void game_update_callback(void* game_data, float delta_time) {
             if (distance < PLAYER_RADIUS + COIN_RADIUS) {
                 coin->collected = true;
                 state->coins_collected++;
-                PlayCoinSound();
+                audio_play_sound(AUDIO_SOUND_COIN);
                 printf("Coin collected! Total: %d/%d\n", state->coins_collected, state->total_coins);
                 
                 // Check if all coins are collected
@@ -909,7 +535,7 @@ static void game_update_callback(void* game_data, float delta_time) {
                     printf("All coins collected! Game complete in %d frames!\n", completion_frames);
                     
                     // Play victory sound
-                    PlayVictorySound();
+                    audio_play_sound(AUDIO_SOUND_VICTORY);
                     
                     // Store pending score and go to name entry
                     state->pending_score.frame_count = completion_frames;
@@ -927,8 +553,9 @@ static void game_update_callback(void* game_data, float delta_time) {
     }
 }
 
-// Render start screen
-void render_start_screen(GameState* game) {
+// Render functions are now in renderer.c module
+// Legacy function kept for compatibility - should be removed
+static void render_start_screen_legacy(GameState* game) {
     // Gradient background
     ClearBackground((Color){30, 30, 50, 255});
     
@@ -982,8 +609,7 @@ void render_start_screen(GameState* game) {
     }
 }
 
-// Render end screen
-void render_end_screen(GameState* game) {
+static void render_end_screen_legacy(GameState* game) {
     // Victory background
     ClearBackground((Color){20, 50, 20, 255});
     
@@ -1052,8 +678,7 @@ void render_end_screen(GameState* game) {
     }
 }
 
-// Render name entry screen
-void render_name_entry_screen(GameState* game) {
+static void render_name_entry_screen_legacy(GameState* game) {
     ClearBackground((Color){30, 30, 50, 255});
     
     // Title
@@ -1092,8 +717,7 @@ void render_name_entry_screen(GameState* game) {
     DrawText(instruction, SCREEN_WIDTH/2 - inst_width/2, 420, 20, LIGHTGRAY);
 }
 
-// Render high scores screen
-void render_high_scores_screen(GameState* game) {
+static void render_high_scores_screen_legacy(GameState* game) {
     ClearBackground((Color){20, 20, 40, 255});
     
     // Title
@@ -1146,128 +770,34 @@ static void game_render_callback(void* game_data) {
     
     // Handle different game states
     if (state->state == GAME_STATE_START) {
-        render_start_screen(state);
+        renderer_draw_start_screen(state->frame_count, state->high_scores, state->high_score_count);
         return;
     }
     
     if (state->state == GAME_STATE_END) {
-        render_end_screen(state);
+        renderer_draw_end_screen(state->frame_count, state->game_start_frame, state->total_coins, 
+                                 state->health, state->max_health, state->high_scores, state->high_score_count);
         return;
     }
     
     if (state->state == GAME_STATE_ENTER_NAME) {
-        render_name_entry_screen(state);
+        renderer_draw_name_entry_screen(state->player_name, state->name_char_count, 
+                                       state->pending_score.frame_count, 
+                                       state->pending_score.coins_collected,
+                                       state->pending_score.health_remaining);
         return;
     }
     
     if (state->state == GAME_STATE_HIGH_SCORES) {
-        render_high_scores_screen(state);
+        renderer_draw_high_scores_screen(state->high_scores, state->high_score_count);
         return;
     }
     
     // Render playing state
     Map* current_map = &state->maps[state->current_map_id];
-    
-    // Clear background with map color
-    ClearBackground(current_map->bg_color);
-    
-    // Draw walls
-    for (int i = 0; i < current_map->wall_count; i++) {
-        DrawRectangleRec(current_map->walls[i].rect, DARKGRAY);
-        DrawRectangleLinesEx(current_map->walls[i].rect, 2, BLACK);
-    }
-    
-    // Draw exits
-    for (int i = 0; i < current_map->exit_count; i++) {
-        Exit* exit = &current_map->exits[i];
-        DrawRectangleRec(exit->rect, GREEN);
-        DrawRectangleLinesEx(exit->rect, 3, DARKGREEN);
-        // Draw arrow indicator
-        Vector2 center = {exit->rect.x + exit->rect.width/2, exit->rect.y + exit->rect.height/2};
-        DrawText("→", center.x - 10, center.y - 10, 20, WHITE);
-    }
-    
-    // Draw coins
-    for (int i = 0; i < current_map->coin_count; i++) {
-        Coin* coin = &current_map->coins[i];
-        if (!coin->collected) {
-            // Draw coin as a golden circle
-            DrawCircleV(coin->position, COIN_RADIUS, GOLD);
-            DrawCircleV(coin->position, COIN_RADIUS - 2, YELLOW);
-            DrawCircleLinesV(coin->position, COIN_RADIUS, ORANGE);
-        }
-    }
-    
-    // Draw obstacles
-    for (int i = 0; i < current_map->obstacle_count; i++) {
-        Obstacle* obstacle = &current_map->obstacles[i];
-        // Draw obstacle as a red circle with warning indicator
-        DrawCircleV(obstacle->position, obstacle->radius, obstacle->color);
-        DrawCircleV(obstacle->position, obstacle->radius - 2, MAROON);
-        DrawCircleLinesV(obstacle->position, obstacle->radius, BLACK);
-        // Draw X mark to indicate danger
-        float x = obstacle->position.x;
-        float y = obstacle->position.y;
-        float size = obstacle->radius * 0.6f;
-        DrawLineEx((Vector2){x - size, y - size}, (Vector2){x + size, y + size}, 3, WHITE);
-        DrawLineEx((Vector2){x - size, y + size}, (Vector2){x + size, y - size}, 3, WHITE);
-    }
-    
-    // Draw health bar
-    float health_bar_width = 200.0f;
-    float health_bar_height = 20.0f;
-    float health_bar_x = SCREEN_WIDTH - health_bar_width - 20;
-    float health_bar_y = 20;
-    
-    // Health bar background
-    DrawRectangle(health_bar_x, health_bar_y, health_bar_width, health_bar_height, GRAY);
-    DrawRectangleLinesEx((Rectangle){health_bar_x, health_bar_y, health_bar_width, health_bar_height}, 2, BLACK);
-    
-    // Health bar fill
-    float health_percentage = state->health / state->max_health;
-    if (health_percentage < 0) health_percentage = 0;
-    float health_fill_width = health_bar_width * health_percentage;
-    
-    // Color based on health percentage
-    Color health_color;
-    if (health_percentage > 0.6f) {
-        health_color = GREEN;
-    } else if (health_percentage > 0.3f) {
-        health_color = YELLOW;
-    } else {
-        health_color = RED;
-    }
-    
-    DrawRectangle(health_bar_x, health_bar_y, health_fill_width, health_bar_height, health_color);
-    
-    // Health text
-    char health_text[50];
-    snprintf(health_text, sizeof(health_text), "HP: %.0f/%.0f", state->health, state->max_health);
-    DrawText(health_text, health_bar_x, health_bar_y + health_bar_height + 5, 16, BLACK);
-    
-    // Draw UI information
-    DrawText("WASD to move", 10, 10, 20, BLACK);
-    DrawText(TextFormat("Map: %d", state->current_map_id), 10, 35, 20, BLACK);
-    DrawText(TextFormat("Coins: %d", state->coins_collected), 10, 60, 20, GOLD);
-    DrawText(TextFormat("Position: (%.0f, %.0f)", state->position.x, state->position.y), 10, 85, 20, BLACK);
-    DrawFPS(10, 110);
-    
-    // Draw player (circle) - flash when invincible
-    Color player_color = BLUE;
-    Color player_inner_color = DARKBLUE;
-    if (state->invincibility_timer > 0) {
-        // Flash effect when invincible (every 5 frames)
-        if ((state->invincibility_timer / 5) % 2 == 0) {
-            player_color = (Color){player_color.r, player_color.g, player_color.b, 128}; // Semi-transparent
-            player_inner_color = (Color){player_inner_color.r, player_inner_color.g, player_inner_color.b, 128};
-        } else {
-            player_color = (Color){player_color.r, player_color.g, player_color.b, 255};
-            player_inner_color = (Color){player_inner_color.r, player_inner_color.g, player_inner_color.b, 255};
-        }
-    }
-    
-    DrawCircleV(state->position, PLAYER_RADIUS, player_color);
-    DrawCircleV(state->position, PLAYER_RADIUS - 2, player_inner_color);
+    renderer_draw_game_screen(current_map, state->position, 
+                             state->invincibility_timer > 0, state->invincibility_timer,
+                             state->health, state->max_health, state->current_map_id, state->coins_collected);
 }
 
 // Game cleanup callback
