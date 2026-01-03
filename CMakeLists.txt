@@ -27,6 +27,7 @@ set(SOURCES
     src/item.c
     src/state.c
     src/highscore.c
+    src/projectile.c
 )
 
 # Include directories

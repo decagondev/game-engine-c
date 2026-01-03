@@ -4,6 +4,7 @@
 #include "raylib.h"
 #include "map.h"
 #include "highscore.h"
+#include "projectile.h"
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -126,6 +127,13 @@ void renderer_draw_name_entry_screen(const char* player_name, int name_length, i
 void renderer_draw_high_scores_screen(const HighScore* high_scores, int high_score_count);
 
 /**
+ * Draw a projectile.
+ * @param position Position to draw the projectile
+ * @param radius Radius of the projectile
+ */
+void renderer_draw_projectile(Vector2 position, float radius);
+
+/**
  * Draw the main game screen.
  * @param current_map Current map being played
  * @param player_position Player's position
@@ -135,8 +143,11 @@ void renderer_draw_high_scores_screen(const HighScore* high_scores, int high_sco
  * @param max_health Maximum health
  * @param current_map_id Current map ID
  * @param coins_collected Number of coins collected
+ * @param projectiles Array of projectiles to draw
+ * @param projectile_count Number of projectiles
  */
 void renderer_draw_game_screen(const Map* current_map, Vector2 player_position, bool invincible, int invincibility_timer,
-                              float health, float max_health, int current_map_id, int coins_collected);
+                              float health, float max_health, int current_map_id, int coins_collected,
+                              Projectile** projectiles, int projectile_count);
 
 #endif

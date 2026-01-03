@@ -2,6 +2,7 @@
 #include "../include/map.h"
 #include "../include/player.h"
 #include "../include/highscore.h"
+#include "../include/projectile.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +22,9 @@ struct GameState {
     char player_name[MAX_NAME_LENGTH + 1];
     int name_char_count;
     HighScore pending_score;
+    Projectile* projectiles[MAX_PROJECTILES];
+    int projectile_count;
+    int projectile_cooldown;
 };
 
 GameState* state_create(void) {
@@ -34,6 +38,12 @@ void state_destroy(GameState* state) {
     if (!state) return;
     if (state->player) {
         player_destroy(state->player);
+    }
+    // Clean up all projectiles
+    for (int i = 0; i < state->projectile_count; i++) {
+        if (state->projectiles[i]) {
+            projectile_destroy(state->projectiles[i]);
+        }
     }
     free(state);
 }
@@ -51,6 +61,9 @@ void state_init(GameState* state) {
     memset(state->player_name, 0, sizeof(state->player_name));
     state->name_char_count = 0;
     memset(&state->pending_score, 0, sizeof(state->pending_score));
+    state->projectile_count = 0;
+    memset(state->projectiles, 0, sizeof(state->projectiles));
+    state->projectile_cooldown = 0;
     
     state->player = player_create();
     if (!state->player) {
@@ -250,6 +263,67 @@ void state_reset_coins(GameState* state) {
         for (int j = 0; j < state->maps[i].coin_count; j++) {
             state->maps[i].coins[j].collected = false;
         }
+    }
+}
+
+bool state_add_projectile(GameState* state, Projectile* projectile) {
+    if (!state || !projectile) return false;
+    if (state->projectile_count >= MAX_PROJECTILES) return false;
+    
+    state->projectiles[state->projectile_count++] = projectile;
+    return true;
+}
+
+Projectile** state_get_projectiles(GameState* state, int* count) {
+    if (!state) {
+        if (count) *count = 0;
+        return NULL;
+    }
+    if (count) *count = state->projectile_count;
+    return state->projectiles;
+}
+
+void state_remove_projectile(GameState* state, int index) {
+    if (!state || index < 0 || index >= state->projectile_count) return;
+    
+    if (state->projectiles[index]) {
+        projectile_destroy(state->projectiles[index]);
+    }
+    
+    // Shift remaining projectiles
+    for (int i = index; i < state->projectile_count - 1; i++) {
+        state->projectiles[i] = state->projectiles[i + 1];
+    }
+    state->projectile_count--;
+    state->projectiles[state->projectile_count] = NULL;
+}
+
+void state_clear_projectiles(GameState* state) {
+    if (!state) return;
+    
+    for (int i = 0; i < state->projectile_count; i++) {
+        if (state->projectiles[i]) {
+            projectile_destroy(state->projectiles[i]);
+            state->projectiles[i] = NULL;
+        }
+    }
+    state->projectile_count = 0;
+}
+
+int state_get_projectile_cooldown(const GameState* state) {
+    if (!state) return 0;
+    return state->projectile_cooldown;
+}
+
+void state_set_projectile_cooldown(GameState* state, int cooldown) {
+    if (!state) return;
+    state->projectile_cooldown = cooldown;
+}
+
+void state_decrement_projectile_cooldown(GameState* state) {
+    if (!state) return;
+    if (state->projectile_cooldown > 0) {
+        state->projectile_cooldown--;
     }
 }
 

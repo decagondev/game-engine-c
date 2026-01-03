@@ -5,10 +5,12 @@
 #include "map.h"
 #include "player.h"
 #include "highscore.h"
+#include "projectile.h"
 #include <stdbool.h>
 
 #define NUM_MAPS 4
 #define MAX_NAME_LENGTH 20
+#define MAX_PROJECTILES 50
 
 typedef enum {
     GAME_STATE_START,
@@ -236,6 +238,55 @@ bool state_all_coins_collected(const GameState* state);
  * @param state The state
  */
 void state_reset_coins(GameState* state);
+
+/**
+ * Add a projectile to the state.
+ * @param state The state
+ * @param projectile The projectile to add
+ * @return true if added successfully, false if array is full
+ */
+bool state_add_projectile(GameState* state, Projectile* projectile);
+
+/**
+ * Get all projectiles.
+ * @param state The state
+ * @param count Output parameter for projectile count
+ * @return Pointer to projectiles array
+ */
+Projectile** state_get_projectiles(GameState* state, int* count);
+
+/**
+ * Remove a projectile at the given index.
+ * @param state The state
+ * @param index Index of projectile to remove
+ */
+void state_remove_projectile(GameState* state, int index);
+
+/**
+ * Clear all projectiles.
+ * @param state The state
+ */
+void state_clear_projectiles(GameState* state);
+
+/**
+ * Get the projectile cooldown.
+ * @param state The state
+ * @return Current cooldown value
+ */
+int state_get_projectile_cooldown(const GameState* state);
+
+/**
+ * Set the projectile cooldown.
+ * @param state The state
+ * @param cooldown Cooldown value
+ */
+void state_set_projectile_cooldown(GameState* state, int cooldown);
+
+/**
+ * Decrement the projectile cooldown.
+ * @param state The state
+ */
+void state_decrement_projectile_cooldown(GameState* state);
 
 #endif
 

@@ -244,8 +244,15 @@ void renderer_draw_high_scores_screen(const HighScore* high_scores, int high_sco
     renderer_draw_text_centered("Press ESC, H, SPACE, or ENTER to return", SCREEN_HEIGHT - 50, 24, YELLOW);
 }
 
+void renderer_draw_projectile(Vector2 position, float radius) {
+    DrawCircleV(position, radius, YELLOW);
+    DrawCircleV(position, radius - 1, ORANGE);
+    DrawCircleLinesV(position, radius, (Color){255, 140, 0, 255});  // Orange color
+}
+
 void renderer_draw_game_screen(const Map* current_map, Vector2 player_position, bool invincible, int invincibility_timer,
-                               float health, float max_health, int current_map_id, int coins_collected) {
+                               float health, float max_health, int current_map_id, int coins_collected,
+                               Projectile** projectiles, int projectile_count) {
     if (!current_map) return;
     
     renderer_draw_map(current_map);
@@ -262,6 +269,15 @@ void renderer_draw_game_screen(const Map* current_map, Vector2 player_position, 
         renderer_draw_obstacle(obstacles[i].position, obstacles[i].radius, obstacles[i].color);
     }
     
+    // Draw projectiles
+    for (int i = 0; i < projectile_count; i++) {
+        if (projectiles[i] && projectile_is_active(projectiles[i])) {
+            Vector2 proj_pos = projectile_get_position(projectiles[i]);
+            float proj_radius = projectile_get_radius(projectiles[i]);
+            renderer_draw_projectile(proj_pos, proj_radius);
+        }
+    }
+    
     renderer_draw_health_bar(SCREEN_WIDTH - 220, 20, 200, 20, health, max_health);
     
     renderer_draw_text("WASD to move", 10, 10, 20, BLACK);
@@ -271,9 +287,7 @@ void renderer_draw_game_screen(const Map* current_map, Vector2 player_position, 
     char coin_text[50];
     snprintf(coin_text, sizeof(coin_text), "Coins: %d", coins_collected);
     renderer_draw_text(coin_text, 10, 60, 20, GOLD);
-    char pos_text[100];
-    snprintf(pos_text, sizeof(pos_text), "Position: (%.0f, %.0f)", player_position.x, player_position.y);
-    renderer_draw_text(pos_text, 10, 85, 20, BLACK);
+    renderer_draw_text("Click or SPACE+Arrow to shoot", 10, 85, 18, DARKGRAY);
     renderer_draw_fps(10, 110);
     
     renderer_draw_player(player_position, invincible, invincibility_timer);

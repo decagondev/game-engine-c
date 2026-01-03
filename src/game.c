@@ -8,6 +8,7 @@
 #include "../include/item.h"
 #include "../include/state.h"
 #include "../include/highscore.h"
+#include "../include/projectile.h"
 #include "raylib.h"
 #include <stdio.h>
 #include <stdbool.h>
@@ -19,6 +20,7 @@
 #define SCREEN_HEIGHT 600
 #define PLAYER_RADIUS 25.0f
 #define DAMAGE_PER_HIT 10.0f
+#define PROJECTILE_COOLDOWN 10  // frames between shots
 
 struct CoinCollectorGame {
     GameState* state;
@@ -150,6 +152,99 @@ static void game_update_callback(void* game_data, float delta_time) {
     
     player_update(player);
     
+    // Handle shooting input
+    state_decrement_projectile_cooldown(state);
+    Vector2 player_pos = player_get_position(player);
+    
+    if (state_get_projectile_cooldown(state) <= 0) {
+        Vector2 shoot_direction = {0, 0};
+        bool should_shoot = false;
+        
+        // Mouse shooting (primary method)
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            Vector2 mouse_pos = GetMousePosition();
+            shoot_direction.x = mouse_pos.x - player_pos.x;
+            shoot_direction.y = mouse_pos.y - player_pos.y;
+            should_shoot = true;
+        }
+        // Arrow key shooting (alternative)
+        else if (IsKeyPressed(KEY_SPACE)) {
+            if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) {
+                shoot_direction = (Vector2){0, -1};
+                should_shoot = true;
+            } else if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) {
+                shoot_direction = (Vector2){0, 1};
+                should_shoot = true;
+            } else if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) {
+                shoot_direction = (Vector2){-1, 0};
+                should_shoot = true;
+            } else if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) {
+                shoot_direction = (Vector2){1, 0};
+                should_shoot = true;
+            }
+        }
+        
+        if (should_shoot) {
+            float length = sqrtf(shoot_direction.x * shoot_direction.x + shoot_direction.y * shoot_direction.y);
+            if (length > 0.1f) {  // Only shoot if direction is meaningful
+                Projectile* proj = projectile_create(player_pos, shoot_direction);
+                if (proj && state_add_projectile(state, proj)) {
+                    state_set_projectile_cooldown(state, PROJECTILE_COOLDOWN);
+                    audio_play_sound(AUDIO_SOUND_MENU);  // Use menu sound for shooting
+                } else if (proj) {
+                    projectile_destroy(proj);  // Clean up if couldn't add
+                }
+            }
+        }
+    }
+    
+    // Update projectiles
+    int projectile_count;
+    Projectile** projectiles = state_get_projectiles(state, &projectile_count);
+    for (int i = projectile_count - 1; i >= 0; i--) {
+        if (!projectiles[i] || !projectile_is_active(projectiles[i])) {
+            if (projectiles[i]) {
+                state_remove_projectile(state, i);
+            }
+            continue;
+        }
+        
+        projectile_update(projectiles[i]);
+        
+        if (!projectile_is_active(projectiles[i])) {
+            state_remove_projectile(state, i);
+            continue;
+        }
+        
+        // Check collision with walls
+        int wall_count;
+        const Wall* walls = map_get_walls(current_map, &wall_count);
+        bool hit_wall = false;
+        for (int j = 0; j < wall_count; j++) {
+            if (projectile_check_rect_collision(projectiles[i], walls[j].rect)) {
+                hit_wall = true;
+                break;
+            }
+        }
+        
+        if (hit_wall) {
+            state_remove_projectile(state, i);
+            continue;
+        }
+        
+        // Check collision with enemies
+        Vector2 proj_pos = projectile_get_position(projectiles[i]);
+        for (int j = 0; j < current_map->obstacle_count; j++) {
+            Obstacle* obstacle = &current_map->obstacles[j];
+            if (projectile_check_circle_collision(projectiles[i], obstacle->position, OBSTACLE_RADIUS)) {
+                // Damage enemy (for now, just remove projectile)
+                // In the future, we could add enemy health system
+                state_remove_projectile(state, i);
+                break;
+            }
+        }
+    }
+    
     for (int i = 0; i < current_map->obstacle_count; i++) {
         Obstacle* obstacle = &current_map->obstacles[i];
         
@@ -188,7 +283,7 @@ static void game_update_callback(void* game_data, float delta_time) {
         printf("Entered map %d\n", target_map_id);
     }
     
-    Vector2 player_pos = player_get_position(player);
+    player_pos = player_get_position(player);
     for (int i = 0; i < current_map->obstacle_count; i++) {
         Obstacle* obstacle = &current_map->obstacles[i];
         
@@ -308,10 +403,14 @@ static void game_render_callback(void* game_data) {
     Map* current_map = state_get_current_map(state);
     if (!current_map) return;
     
+    int projectile_count;
+    Projectile** projectiles = state_get_projectiles(state, &projectile_count);
+    
     renderer_draw_game_screen(current_map, player_get_position(player),
                              player_is_invincible(player), player_get_invincibility_timer(player),
                              player_get_health(player), player_get_max_health(player),
-                             state_get_current_map_id(state), state_get_coins_collected(state));
+                             state_get_current_map_id(state), state_get_coins_collected(state),
+                             projectiles, projectile_count);
 }
 
 /**
