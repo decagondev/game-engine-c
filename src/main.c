@@ -23,12 +23,24 @@ typedef struct {
     bool collected;
 } Coin;
 
+typedef struct {
+    Vector2 position;
+    Vector2 velocity;
+    float radius;
+    int direction_change_timer;
+    Color color;
+} Obstacle;
+
 #define MAX_WALLS 20
 #define MAX_EXITS 4
 #define MAX_ENTRANCES 4
 #define MAX_COINS 10
+#define MAX_OBSTACLES 5
 #define NUM_MAPS 4
 #define COIN_RADIUS 15.0f
+#define OBSTACLE_RADIUS 20.0f
+#define OBSTACLE_SPEED 2.0f
+#define OBSTACLE_DIRECTION_CHANGE_FRAMES 120  // Change direction every 2 seconds at 60fps
 
 typedef struct {
     int map_id;
@@ -40,6 +52,8 @@ typedef struct {
     int entrance_count;
     Coin coins[MAX_COINS];
     int coin_count;
+    Obstacle obstacles[MAX_OBSTACLES];
+    int obstacle_count;
     Color bg_color;
 } Map;
 
@@ -90,6 +104,7 @@ void init_map(Map* map, int map_id) {
     map->exit_count = 0;
     map->entrance_count = 0;
     map->coin_count = 0;
+    map->obstacle_count = 0;
     
     // Set background color based on map
     switch(map_id) {
@@ -124,6 +139,10 @@ void init_map(Map* map, int map_id) {
         map->coins[map->coin_count++] = (Coin){(Vector2){150, 150}, false};
         map->coins[map->coin_count++] = (Coin){(Vector2){350, 200}, false};
         map->coins[map->coin_count++] = (Coin){(Vector2){150, 350}, false};
+        
+        // Obstacles
+        map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){300, 250}, (Vector2){OBSTACLE_SPEED, OBSTACLE_SPEED}, OBSTACLE_RADIUS, 0, RED};
+        map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){200, 300}, (Vector2){-OBSTACLE_SPEED, OBSTACLE_SPEED}, OBSTACLE_RADIUS, 60, RED};
     }
     // Map 1: Top-right room
     else if (map_id == 1) {
@@ -149,6 +168,10 @@ void init_map(Map* map, int map_id) {
         map->coins[map->coin_count++] = (Coin){(Vector2){550, 150}, false};
         map->coins[map->coin_count++] = (Coin){(Vector2){750, 200}, false};
         map->coins[map->coin_count++] = (Coin){(Vector2){550, 350}, false};
+        
+        // Obstacles
+        map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){600, 250}, (Vector2){OBSTACLE_SPEED, -OBSTACLE_SPEED}, OBSTACLE_RADIUS, 30, RED};
+        map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){700, 300}, (Vector2){-OBSTACLE_SPEED, OBSTACLE_SPEED}, OBSTACLE_RADIUS, 90, RED};
     }
     // Map 2: Bottom-left room
     else if (map_id == 2) {
@@ -174,6 +197,10 @@ void init_map(Map* map, int map_id) {
         map->coins[map->coin_count++] = (Coin){(Vector2){150, 500}, false};
         map->coins[map->coin_count++] = (Coin){(Vector2){350, 450}, false};
         map->coins[map->coin_count++] = (Coin){(Vector2){150, 350}, false};
+        
+        // Obstacles
+        map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){300, 500}, (Vector2){OBSTACLE_SPEED, OBSTACLE_SPEED}, OBSTACLE_RADIUS, 45, RED};
+        map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){200, 450}, (Vector2){-OBSTACLE_SPEED, OBSTACLE_SPEED}, OBSTACLE_RADIUS, 120, RED};
     }
     // Map 3: Bottom-right room
     else if (map_id == 3) {
@@ -199,6 +226,10 @@ void init_map(Map* map, int map_id) {
         map->coins[map->coin_count++] = (Coin){(Vector2){550, 500}, false};
         map->coins[map->coin_count++] = (Coin){(Vector2){750, 450}, false};
         map->coins[map->coin_count++] = (Coin){(Vector2){550, 350}, false};
+        
+        // Obstacles
+        map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){600, 500}, (Vector2){OBSTACLE_SPEED, -OBSTACLE_SPEED}, OBSTACLE_RADIUS, 75, RED};
+        map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){700, 450}, (Vector2){-OBSTACLE_SPEED, -OBSTACLE_SPEED}, OBSTACLE_RADIUS, 15, RED};
     }
 }
 
@@ -283,6 +314,68 @@ void game_update(GameState* game) {
     // Only update game logic when playing
     Map* current_map = &game->maps[game->current_map_id];
     
+    // Update obstacles
+    for (int i = 0; i < current_map->obstacle_count; i++) {
+        Obstacle* obstacle = &current_map->obstacles[i];
+        
+        // Update direction change timer
+        obstacle->direction_change_timer++;
+        if (obstacle->direction_change_timer >= OBSTACLE_DIRECTION_CHANGE_FRAMES) {
+            // Randomly change direction
+            float angle = (float)(GetRandomValue(0, 360)) * DEG2RAD;
+            obstacle->velocity.x = cosf(angle) * OBSTACLE_SPEED;
+            obstacle->velocity.y = sinf(angle) * OBSTACLE_SPEED;
+            obstacle->direction_change_timer = 0;
+        }
+        
+        // Calculate new position
+        Vector2 new_obstacle_pos = {
+            obstacle->position.x + obstacle->velocity.x,
+            obstacle->position.y + obstacle->velocity.y
+        };
+        
+        // Check wall collisions for obstacles
+        bool can_move_obstacle = true;
+        Rectangle obstacle_rect = {
+            new_obstacle_pos.x - obstacle->radius,
+            new_obstacle_pos.y - obstacle->radius,
+            obstacle->radius * 2,
+            obstacle->radius * 2
+        };
+        
+        for (int j = 0; j < current_map->wall_count; j++) {
+            if (CheckCollisionRecs(obstacle_rect, current_map->walls[j].rect)) {
+                can_move_obstacle = false;
+                // Bounce off wall by reversing velocity
+                obstacle->velocity.x = -obstacle->velocity.x;
+                obstacle->velocity.y = -obstacle->velocity.y;
+                break;
+            }
+        }
+        
+        // Keep obstacle within screen bounds
+        if (new_obstacle_pos.x < obstacle->radius) {
+            new_obstacle_pos.x = obstacle->radius;
+            obstacle->velocity.x = -obstacle->velocity.x;
+        }
+        if (new_obstacle_pos.x > SCREEN_WIDTH - obstacle->radius) {
+            new_obstacle_pos.x = SCREEN_WIDTH - obstacle->radius;
+            obstacle->velocity.x = -obstacle->velocity.x;
+        }
+        if (new_obstacle_pos.y < obstacle->radius) {
+            new_obstacle_pos.y = obstacle->radius;
+            obstacle->velocity.y = -obstacle->velocity.y;
+        }
+        if (new_obstacle_pos.y > SCREEN_HEIGHT - obstacle->radius) {
+            new_obstacle_pos.y = SCREEN_HEIGHT - obstacle->radius;
+            obstacle->velocity.y = -obstacle->velocity.y;
+        }
+        
+        if (can_move_obstacle) {
+            obstacle->position = new_obstacle_pos;
+        }
+    }
+    
     // WASD movement input
     Vector2 movement = {0.0f, 0.0f};
     
@@ -360,6 +453,31 @@ void game_update(GameState* game) {
         }
     }
     
+    // Check for obstacle collision (death)
+    for (int i = 0; i < current_map->obstacle_count; i++) {
+        Obstacle* obstacle = &current_map->obstacles[i];
+        float distance = sqrtf((game->position.x - obstacle->position.x) * (game->position.x - obstacle->position.x) +
+                               (game->position.y - obstacle->position.y) * (game->position.y - obstacle->position.y));
+        if (distance < PLAYER_RADIUS + obstacle->radius) {
+            // Player died - reset game
+            printf("Player died! Resetting game...\n");
+            game->coins_collected = 0;
+            game->current_map_id = 0;
+            game->position = game->maps[0].entrances[0].position;
+            // Reset all coins
+            for (int j = 0; j < NUM_MAPS; j++) {
+                for (int k = 0; k < game->maps[j].coin_count; k++) {
+                    game->maps[j].coins[k].collected = false;
+                }
+            }
+            // Reset all obstacles to initial positions
+            for (int j = 0; j < NUM_MAPS; j++) {
+                init_map(&game->maps[j], j);
+            }
+            break;
+        }
+    }
+    
     // Check for coin collection
     for (int i = 0; i < current_map->coin_count; i++) {
         Coin* coin = &current_map->coins[i];
@@ -398,11 +516,13 @@ void render_start_screen(GameState* game) {
     const char* instruction1 = "Collect all coins across 4 maps!";
     const char* instruction2 = "Use WASD to move";
     const char* instruction3 = "Walk into green exits to change maps";
+    const char* instruction4 = "Avoid red obstacles - they will kill you!";
     const char* press_key = "Press SPACE or ENTER to start";
     
-    DrawText(instruction1, SCREEN_WIDTH/2 - MeasureText(instruction1, 24)/2, 280, 24, WHITE);
-    DrawText(instruction2, SCREEN_WIDTH/2 - MeasureText(instruction2, 20)/2, 320, 20, LIGHTGRAY);
-    DrawText(instruction3, SCREEN_WIDTH/2 - MeasureText(instruction3, 20)/2, 350, 20, LIGHTGRAY);
+    DrawText(instruction1, SCREEN_WIDTH/2 - MeasureText(instruction1, 24)/2, 260, 24, WHITE);
+    DrawText(instruction2, SCREEN_WIDTH/2 - MeasureText(instruction2, 20)/2, 300, 20, LIGHTGRAY);
+    DrawText(instruction3, SCREEN_WIDTH/2 - MeasureText(instruction3, 20)/2, 330, 20, LIGHTGRAY);
+    DrawText(instruction4, SCREEN_WIDTH/2 - MeasureText(instruction4, 20)/2, 360, 20, RED);
     
     // Blinking start text
     if ((game->frame_count / 30) % 2 == 0) {
@@ -519,6 +639,21 @@ void game_render(GameState* game) {
             DrawCircleV(coin->position, COIN_RADIUS - 2, YELLOW);
             DrawCircleLinesV(coin->position, COIN_RADIUS, ORANGE);
         }
+    }
+    
+    // Draw obstacles
+    for (int i = 0; i < current_map->obstacle_count; i++) {
+        Obstacle* obstacle = &current_map->obstacles[i];
+        // Draw obstacle as a red circle with warning indicator
+        DrawCircleV(obstacle->position, obstacle->radius, obstacle->color);
+        DrawCircleV(obstacle->position, obstacle->radius - 2, MAROON);
+        DrawCircleLinesV(obstacle->position, obstacle->radius, BLACK);
+        // Draw X mark to indicate danger
+        float x = obstacle->position.x;
+        float y = obstacle->position.y;
+        float size = obstacle->radius * 0.6f;
+        DrawLineEx((Vector2){x - size, y - size}, (Vector2){x + size, y + size}, 3, WHITE);
+        DrawLineEx((Vector2){x - size, y + size}, (Vector2){x + size, y - size}, 3, WHITE);
     }
     
     // Draw UI information
