@@ -43,6 +43,13 @@ typedef struct {
     Color bg_color;
 } Map;
 
+// Game screen states
+typedef enum {
+    GAME_STATE_START,
+    GAME_STATE_PLAYING,
+    GAME_STATE_END
+} GameStateType;
+
 // Game state structure
 typedef struct {
     bool running;
@@ -51,6 +58,8 @@ typedef struct {
     float speed;       // Movement speed
     int current_map_id;
     int coins_collected;
+    int total_coins;
+    GameStateType state;
     Map maps[NUM_MAPS];
 } GameState;
 
@@ -193,6 +202,19 @@ void init_map(Map* map, int map_id) {
     }
 }
 
+// Check if all coins are collected
+bool all_coins_collected(GameState* game) {
+    int total_collected = 0;
+    for (int i = 0; i < NUM_MAPS; i++) {
+        for (int j = 0; j < game->maps[i].coin_count; j++) {
+            if (game->maps[i].coins[j].collected) {
+                total_collected++;
+            }
+        }
+    }
+    return total_collected >= game->total_coins;
+}
+
 // Initialize game
 void game_init(GameState* game) {
     // Initialize raylib window
@@ -204,16 +226,24 @@ void game_init(GameState* game) {
     game->speed = PLAYER_SPEED;
     game->current_map_id = 0;
     game->coins_collected = 0;
+    game->state = GAME_STATE_START;
     
     // Initialize all maps
     for (int i = 0; i < NUM_MAPS; i++) {
         init_map(&game->maps[i], i);
     }
     
+    // Calculate total coins
+    game->total_coins = 0;
+    for (int i = 0; i < NUM_MAPS; i++) {
+        game->total_coins += game->maps[i].coin_count;
+    }
+    
     // Start player at entrance 0 of map 0
     game->position = game->maps[0].entrances[0].position;
     
     printf("Game initialized! Window created: %dx%d\n", SCREEN_WIDTH, SCREEN_HEIGHT);
+    printf("Total coins: %d\n", game->total_coins);
 }
 
 // Update game logic
@@ -225,6 +255,32 @@ void game_update(GameState* game) {
         game->running = false;
     }
     
+    // Handle state transitions
+    if (game->state == GAME_STATE_START) {
+        if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
+            game->state = GAME_STATE_PLAYING;
+        }
+        return;
+    }
+    
+    if (game->state == GAME_STATE_END) {
+        if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER)) {
+            // Restart game
+            game->state = GAME_STATE_START;
+            game->coins_collected = 0;
+            game->current_map_id = 0;
+            game->position = game->maps[0].entrances[0].position;
+            // Reset all coins
+            for (int i = 0; i < NUM_MAPS; i++) {
+                for (int j = 0; j < game->maps[i].coin_count; j++) {
+                    game->maps[i].coins[j].collected = false;
+                }
+            }
+        }
+        return;
+    }
+    
+    // Only update game logic when playing
     Map* current_map = &game->maps[game->current_map_id];
     
     // WASD movement input
@@ -313,14 +369,124 @@ void game_update(GameState* game) {
             if (distance < PLAYER_RADIUS + COIN_RADIUS) {
                 coin->collected = true;
                 game->coins_collected++;
-                printf("Coin collected! Total: %d\n", game->coins_collected);
+                printf("Coin collected! Total: %d/%d\n", game->coins_collected, game->total_coins);
+                
+                // Check if all coins are collected
+                if (all_coins_collected(game)) {
+                    game->state = GAME_STATE_END;
+                    printf("All coins collected! Game complete!\n");
+                }
             }
         }
     }
 }
 
+// Render start screen
+void render_start_screen(GameState* game) {
+    BeginDrawing();
+    
+    // Gradient background
+    ClearBackground((Color){30, 30, 50, 255});
+    
+    // Title
+    const char* title = "COIN COLLECTOR";
+    int title_font_size = 60;
+    int title_width = MeasureText(title, title_font_size);
+    DrawText(title, SCREEN_WIDTH/2 - title_width/2, 150, title_font_size, GOLD);
+    
+    // Instructions
+    const char* instruction1 = "Collect all coins across 4 maps!";
+    const char* instruction2 = "Use WASD to move";
+    const char* instruction3 = "Walk into green exits to change maps";
+    const char* press_key = "Press SPACE or ENTER to start";
+    
+    DrawText(instruction1, SCREEN_WIDTH/2 - MeasureText(instruction1, 24)/2, 280, 24, WHITE);
+    DrawText(instruction2, SCREEN_WIDTH/2 - MeasureText(instruction2, 20)/2, 320, 20, LIGHTGRAY);
+    DrawText(instruction3, SCREEN_WIDTH/2 - MeasureText(instruction3, 20)/2, 350, 20, LIGHTGRAY);
+    
+    // Blinking start text
+    if ((game->frame_count / 30) % 2 == 0) {
+        int press_width = MeasureText(press_key, 28);
+        DrawText(press_key, SCREEN_WIDTH/2 - press_width/2, 450, 28, YELLOW);
+    }
+    
+    // Draw some decorative coins
+    for (int i = 0; i < 5; i++) {
+        float x = 150 + i * 125;
+        float y = 500;
+        DrawCircleV((Vector2){x, y}, COIN_RADIUS, GOLD);
+        DrawCircleV((Vector2){x, y}, COIN_RADIUS - 2, YELLOW);
+        DrawCircleLinesV((Vector2){x, y}, COIN_RADIUS, ORANGE);
+    }
+    
+    EndDrawing();
+}
+
+// Render end screen
+void render_end_screen(GameState* game) {
+    BeginDrawing();
+    
+    // Victory background
+    ClearBackground((Color){20, 50, 20, 255});
+    
+    // Victory message
+    const char* victory = "VICTORY!";
+    int victory_font_size = 70;
+    int victory_width = MeasureText(victory, victory_font_size);
+    DrawText(victory, SCREEN_WIDTH/2 - victory_width/2, 150, victory_font_size, GOLD);
+    
+    // Stats
+    char stats[100];
+    snprintf(stats, sizeof(stats), "You collected all %d coins!", game->total_coins);
+    int stats_width = MeasureText(stats, 32);
+    DrawText(stats, SCREEN_WIDTH/2 - stats_width/2, 250, 32, WHITE);
+    
+    char frames[100];
+    snprintf(frames, sizeof(frames), "Total frames: %d", game->frame_count);
+    int frames_width = MeasureText(frames, 24);
+    DrawText(frames, SCREEN_WIDTH/2 - frames_width/2, 300, 24, LIGHTGRAY);
+    
+    // Restart instruction
+    const char* restart = "Press SPACE or ENTER to play again";
+    const char* quit = "Press ESC to quit";
+    
+    // Blinking restart text
+    if ((game->frame_count / 30) % 2 == 0) {
+        int restart_width = MeasureText(restart, 28);
+        DrawText(restart, SCREEN_WIDTH/2 - restart_width/2, 400, 28, YELLOW);
+    }
+    
+    int quit_width = MeasureText(quit, 24);
+    DrawText(quit, SCREEN_WIDTH/2 - quit_width/2, 450, 24, LIGHTGRAY);
+    
+    // Draw celebration coins
+    for (int i = 0; i < 8; i++) {
+        float angle = (game->frame_count * 2 + i * 45) * DEG2RAD;
+        float radius = 100;
+        float x = SCREEN_WIDTH/2 + cosf(angle) * radius;
+        float y = SCREEN_HEIGHT/2 + 50 + sinf(angle) * radius;
+        DrawCircleV((Vector2){x, y}, COIN_RADIUS, GOLD);
+        DrawCircleV((Vector2){x, y}, COIN_RADIUS - 2, YELLOW);
+        DrawCircleLinesV((Vector2){x, y}, COIN_RADIUS, ORANGE);
+    }
+    
+    EndDrawing();
+}
+
 // Render game
 void game_render(GameState* game) {
+    // Handle different game states
+    if (game->state == GAME_STATE_START) {
+        render_start_screen(game);
+        return;
+    }
+    
+    if (game->state == GAME_STATE_END) {
+        render_end_screen(game);
+        return;
+    }
+    
+    // Render playing state
     BeginDrawing();
     
     Map* current_map = &game->maps[game->current_map_id];
