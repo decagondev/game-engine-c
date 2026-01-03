@@ -36,9 +36,8 @@ GameEngine* gengine_create(const EngineConfig* config) {
 void gengine_destroy(GameEngine* engine) {
     if (!engine) return;
     
-    if (engine->callbacks.cleanup && engine->game_data) {
-        engine->callbacks.cleanup(engine->game_data);
-    }
+    // Note: cleanup is already called in gengine_run(), so we don't call it here
+    // to avoid double-cleanup and use-after-free issues
     
     if (engine->initialized) {
         audio_cleanup();
