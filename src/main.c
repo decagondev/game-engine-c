@@ -73,6 +73,9 @@ typedef struct {
     int current_map_id;
     int coins_collected;
     int total_coins;
+    float health;
+    float max_health;
+    int invincibility_timer;
     GameStateType state;
     Map maps[NUM_MAPS];
 } GameState;
@@ -85,6 +88,9 @@ typedef struct {
 #define PLAYER_RADIUS 25.0f
 #define EXIT_WIDTH 60.0f
 #define EXIT_HEIGHT 60.0f
+#define MAX_HEALTH 100.0f
+#define DAMAGE_PER_HIT 10.0f
+#define INVINCIBILITY_FRAMES 60  // 1 second of invincibility at 60fps
 
 // Helper function to check circle-rectangle collision
 bool CheckCircleRectCollision(Vector2 circle_pos, float radius, Rectangle rect) {
@@ -95,6 +101,58 @@ bool CheckCircleRectCollision(Vector2 circle_pos, float radius, Rectangle rect) 
     float distance_y = circle_pos.y - closest_y;
     
     return (distance_x * distance_x + distance_y * distance_y) < (radius * radius);
+}
+
+// Check if a position is valid (not colliding with walls)
+bool IsValidSpawnPosition(Vector2 position, float radius, Map* map) {
+    // Check screen bounds
+    if (position.x < radius || position.x > SCREEN_WIDTH - radius ||
+        position.y < radius || position.y > SCREEN_HEIGHT - radius) {
+        return false;
+    }
+    
+    // Check wall collisions
+    for (int i = 0; i < map->wall_count; i++) {
+        if (CheckCircleRectCollision(position, radius, map->walls[i].rect)) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+// Find a valid spawn position near the desired position
+Vector2 FindValidSpawnPosition(Vector2 desired_pos, float radius, Map* map) {
+    // If desired position is valid, use it
+    if (IsValidSpawnPosition(desired_pos, radius, map)) {
+        return desired_pos;
+    }
+    
+    // Try positions in a spiral pattern around the desired position
+    float search_radius = radius * 2;
+    int max_attempts = 50;
+    
+    for (int attempt = 0; attempt < max_attempts; attempt++) {
+        // Try positions in a circle around desired position
+        for (int angle_step = 0; angle_step < 8; angle_step++) {
+            float angle = (angle_step * 45.0f) * DEG2RAD;
+            Vector2 test_pos = {
+                desired_pos.x + cosf(angle) * search_radius,
+                desired_pos.y + sinf(angle) * search_radius
+            };
+            
+            if (IsValidSpawnPosition(test_pos, radius, map)) {
+                return test_pos;
+            }
+        }
+        
+        // Increase search radius
+        search_radius += radius;
+    }
+    
+    // Fallback: return a safe default position (center of screen)
+    Vector2 safe_pos = {SCREEN_WIDTH / 2.0f, SCREEN_HEIGHT / 2.0f};
+    return safe_pos;
 }
 
 // Initialize a map
@@ -143,6 +201,25 @@ void init_map(Map* map, int map_id) {
         // Obstacles
         map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){300, 250}, (Vector2){OBSTACLE_SPEED, OBSTACLE_SPEED}, OBSTACLE_RADIUS, 0, RED};
         map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){200, 300}, (Vector2){-OBSTACLE_SPEED, OBSTACLE_SPEED}, OBSTACLE_RADIUS, 60, RED};
+        
+        // Validate and adjust spawn positions
+        for (int i = 0; i < map->entrance_count; i++) {
+            Vector2 valid_pos = FindValidSpawnPosition(map->entrances[i].position, PLAYER_RADIUS, map);
+            if (valid_pos.x != map->entrances[i].position.x || valid_pos.y != map->entrances[i].position.y) {
+                printf("Map %d: Adjusted entrance %d from (%.0f, %.0f) to (%.0f, %.0f)\n", 
+                       map_id, i, map->entrances[i].position.x, map->entrances[i].position.y, valid_pos.x, valid_pos.y);
+            }
+            map->entrances[i].position = valid_pos;
+        }
+        
+        for (int i = 0; i < map->obstacle_count; i++) {
+            Vector2 valid_pos = FindValidSpawnPosition(map->obstacles[i].position, OBSTACLE_RADIUS, map);
+            if (valid_pos.x != map->obstacles[i].position.x || valid_pos.y != map->obstacles[i].position.y) {
+                printf("Map %d: Adjusted obstacle %d from (%.0f, %.0f) to (%.0f, %.0f)\n", 
+                       map_id, i, map->obstacles[i].position.x, map->obstacles[i].position.y, valid_pos.x, valid_pos.y);
+            }
+            map->obstacles[i].position = valid_pos;
+        }
     }
     // Map 1: Top-right room
     else if (map_id == 1) {
@@ -172,6 +249,25 @@ void init_map(Map* map, int map_id) {
         // Obstacles
         map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){600, 250}, (Vector2){OBSTACLE_SPEED, -OBSTACLE_SPEED}, OBSTACLE_RADIUS, 30, RED};
         map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){700, 300}, (Vector2){-OBSTACLE_SPEED, OBSTACLE_SPEED}, OBSTACLE_RADIUS, 90, RED};
+        
+        // Validate and adjust spawn positions
+        for (int i = 0; i < map->entrance_count; i++) {
+            Vector2 valid_pos = FindValidSpawnPosition(map->entrances[i].position, PLAYER_RADIUS, map);
+            if (valid_pos.x != map->entrances[i].position.x || valid_pos.y != map->entrances[i].position.y) {
+                printf("Map %d: Adjusted entrance %d from (%.0f, %.0f) to (%.0f, %.0f)\n", 
+                       map_id, i, map->entrances[i].position.x, map->entrances[i].position.y, valid_pos.x, valid_pos.y);
+            }
+            map->entrances[i].position = valid_pos;
+        }
+        
+        for (int i = 0; i < map->obstacle_count; i++) {
+            Vector2 valid_pos = FindValidSpawnPosition(map->obstacles[i].position, OBSTACLE_RADIUS, map);
+            if (valid_pos.x != map->obstacles[i].position.x || valid_pos.y != map->obstacles[i].position.y) {
+                printf("Map %d: Adjusted obstacle %d from (%.0f, %.0f) to (%.0f, %.0f)\n", 
+                       map_id, i, map->obstacles[i].position.x, map->obstacles[i].position.y, valid_pos.x, valid_pos.y);
+            }
+            map->obstacles[i].position = valid_pos;
+        }
     }
     // Map 2: Bottom-left room
     else if (map_id == 2) {
@@ -201,6 +297,25 @@ void init_map(Map* map, int map_id) {
         // Obstacles
         map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){300, 500}, (Vector2){OBSTACLE_SPEED, OBSTACLE_SPEED}, OBSTACLE_RADIUS, 45, RED};
         map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){200, 450}, (Vector2){-OBSTACLE_SPEED, OBSTACLE_SPEED}, OBSTACLE_RADIUS, 120, RED};
+        
+        // Validate and adjust spawn positions
+        for (int i = 0; i < map->entrance_count; i++) {
+            Vector2 valid_pos = FindValidSpawnPosition(map->entrances[i].position, PLAYER_RADIUS, map);
+            if (valid_pos.x != map->entrances[i].position.x || valid_pos.y != map->entrances[i].position.y) {
+                printf("Map %d: Adjusted entrance %d from (%.0f, %.0f) to (%.0f, %.0f)\n", 
+                       map_id, i, map->entrances[i].position.x, map->entrances[i].position.y, valid_pos.x, valid_pos.y);
+            }
+            map->entrances[i].position = valid_pos;
+        }
+        
+        for (int i = 0; i < map->obstacle_count; i++) {
+            Vector2 valid_pos = FindValidSpawnPosition(map->obstacles[i].position, OBSTACLE_RADIUS, map);
+            if (valid_pos.x != map->obstacles[i].position.x || valid_pos.y != map->obstacles[i].position.y) {
+                printf("Map %d: Adjusted obstacle %d from (%.0f, %.0f) to (%.0f, %.0f)\n", 
+                       map_id, i, map->obstacles[i].position.x, map->obstacles[i].position.y, valid_pos.x, valid_pos.y);
+            }
+            map->obstacles[i].position = valid_pos;
+        }
     }
     // Map 3: Bottom-right room
     else if (map_id == 3) {
@@ -230,6 +345,25 @@ void init_map(Map* map, int map_id) {
         // Obstacles
         map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){600, 500}, (Vector2){OBSTACLE_SPEED, -OBSTACLE_SPEED}, OBSTACLE_RADIUS, 75, RED};
         map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){700, 450}, (Vector2){-OBSTACLE_SPEED, -OBSTACLE_SPEED}, OBSTACLE_RADIUS, 15, RED};
+        
+        // Validate and adjust spawn positions
+        for (int i = 0; i < map->entrance_count; i++) {
+            Vector2 valid_pos = FindValidSpawnPosition(map->entrances[i].position, PLAYER_RADIUS, map);
+            if (valid_pos.x != map->entrances[i].position.x || valid_pos.y != map->entrances[i].position.y) {
+                printf("Map %d: Adjusted entrance %d from (%.0f, %.0f) to (%.0f, %.0f)\n", 
+                       map_id, i, map->entrances[i].position.x, map->entrances[i].position.y, valid_pos.x, valid_pos.y);
+            }
+            map->entrances[i].position = valid_pos;
+        }
+        
+        for (int i = 0; i < map->obstacle_count; i++) {
+            Vector2 valid_pos = FindValidSpawnPosition(map->obstacles[i].position, OBSTACLE_RADIUS, map);
+            if (valid_pos.x != map->obstacles[i].position.x || valid_pos.y != map->obstacles[i].position.y) {
+                printf("Map %d: Adjusted obstacle %d from (%.0f, %.0f) to (%.0f, %.0f)\n", 
+                       map_id, i, map->obstacles[i].position.x, map->obstacles[i].position.y, valid_pos.x, valid_pos.y);
+            }
+            map->obstacles[i].position = valid_pos;
+        }
     }
 }
 
@@ -258,6 +392,9 @@ void game_init(GameState* game) {
     game->current_map_id = 0;
     game->coins_collected = 0;
     game->state = GAME_STATE_START;
+    game->health = MAX_HEALTH;
+    game->max_health = MAX_HEALTH;
+    game->invincibility_timer = 0;
     
     // Initialize all maps
     for (int i = 0; i < NUM_MAPS; i++) {
@@ -301,6 +438,8 @@ void game_update(GameState* game) {
             game->coins_collected = 0;
             game->current_map_id = 0;
             game->position = game->maps[0].entrances[0].position;
+            game->health = MAX_HEALTH;
+            game->invincibility_timer = 0;
             // Reset all coins
             for (int i = 0; i < NUM_MAPS; i++) {
                 for (int j = 0; j < game->maps[i].coin_count; j++) {
@@ -313,6 +452,11 @@ void game_update(GameState* game) {
     
     // Only update game logic when playing
     Map* current_map = &game->maps[game->current_map_id];
+    
+    // Update invincibility timer
+    if (game->invincibility_timer > 0) {
+        game->invincibility_timer--;
+    }
     
     // Update obstacles
     for (int i = 0; i < current_map->obstacle_count; i++) {
@@ -453,28 +597,38 @@ void game_update(GameState* game) {
         }
     }
     
-    // Check for obstacle collision (death)
+    // Check for obstacle collision (damage)
     for (int i = 0; i < current_map->obstacle_count; i++) {
         Obstacle* obstacle = &current_map->obstacles[i];
         float distance = sqrtf((game->position.x - obstacle->position.x) * (game->position.x - obstacle->position.x) +
                                (game->position.y - obstacle->position.y) * (game->position.y - obstacle->position.y));
-        if (distance < PLAYER_RADIUS + obstacle->radius) {
-            // Player died - reset game
-            printf("Player died! Resetting game...\n");
-            game->coins_collected = 0;
-            game->current_map_id = 0;
-            game->position = game->maps[0].entrances[0].position;
-            // Reset all coins
-            for (int j = 0; j < NUM_MAPS; j++) {
-                for (int k = 0; k < game->maps[j].coin_count; k++) {
-                    game->maps[j].coins[k].collected = false;
+        if (distance < PLAYER_RADIUS + obstacle->radius && game->invincibility_timer == 0) {
+            // Take damage
+            game->health -= DAMAGE_PER_HIT;
+            game->invincibility_timer = INVINCIBILITY_FRAMES;
+            printf("Hit! Health: %.0f/%.0f\n", game->health, game->max_health);
+            
+            // Check if player died
+            if (game->health <= 0) {
+                game->health = 0;
+                printf("Player died! Resetting game...\n");
+                game->coins_collected = 0;
+                game->current_map_id = 0;
+                game->position = game->maps[0].entrances[0].position;
+                game->health = MAX_HEALTH;
+                game->invincibility_timer = 0;
+                // Reset all coins
+                for (int j = 0; j < NUM_MAPS; j++) {
+                    for (int k = 0; k < game->maps[j].coin_count; k++) {
+                        game->maps[j].coins[k].collected = false;
+                    }
                 }
+                // Reset all obstacles to initial positions
+                for (int j = 0; j < NUM_MAPS; j++) {
+                    init_map(&game->maps[j], j);
+                }
+                break;
             }
-            // Reset all obstacles to initial positions
-            for (int j = 0; j < NUM_MAPS; j++) {
-                init_map(&game->maps[j], j);
-            }
-            break;
         }
     }
     
@@ -656,6 +810,38 @@ void game_render(GameState* game) {
         DrawLineEx((Vector2){x - size, y + size}, (Vector2){x + size, y - size}, 3, WHITE);
     }
     
+    // Draw health bar
+    float health_bar_width = 200.0f;
+    float health_bar_height = 20.0f;
+    float health_bar_x = SCREEN_WIDTH - health_bar_width - 20;
+    float health_bar_y = 20;
+    
+    // Health bar background
+    DrawRectangle(health_bar_x, health_bar_y, health_bar_width, health_bar_height, GRAY);
+    DrawRectangleLinesEx((Rectangle){health_bar_x, health_bar_y, health_bar_width, health_bar_height}, 2, BLACK);
+    
+    // Health bar fill
+    float health_percentage = game->health / game->max_health;
+    if (health_percentage < 0) health_percentage = 0;
+    float health_fill_width = health_bar_width * health_percentage;
+    
+    // Color based on health percentage
+    Color health_color;
+    if (health_percentage > 0.6f) {
+        health_color = GREEN;
+    } else if (health_percentage > 0.3f) {
+        health_color = YELLOW;
+    } else {
+        health_color = RED;
+    }
+    
+    DrawRectangle(health_bar_x, health_bar_y, health_fill_width, health_bar_height, health_color);
+    
+    // Health text
+    char health_text[50];
+    snprintf(health_text, sizeof(health_text), "HP: %.0f/%.0f", game->health, game->max_health);
+    DrawText(health_text, health_bar_x, health_bar_y + health_bar_height + 5, 16, BLACK);
+    
     // Draw UI information
     DrawText("WASD to move", 10, 10, 20, BLACK);
     DrawText(TextFormat("Map: %d", game->current_map_id), 10, 35, 20, BLACK);
@@ -663,9 +849,22 @@ void game_render(GameState* game) {
     DrawText(TextFormat("Position: (%.0f, %.0f)", game->position.x, game->position.y), 10, 85, 20, BLACK);
     DrawFPS(10, 110);
     
-    // Draw player (circle)
-    DrawCircleV(game->position, PLAYER_RADIUS, BLUE);
-    DrawCircleV(game->position, PLAYER_RADIUS - 2, DARKBLUE);
+    // Draw player (circle) - flash when invincible
+    Color player_color = BLUE;
+    Color player_inner_color = DARKBLUE;
+    if (game->invincibility_timer > 0) {
+        // Flash effect when invincible (every 5 frames)
+        if ((game->invincibility_timer / 5) % 2 == 0) {
+            player_color = (Color){player_color.r, player_color.g, player_color.b, 128}; // Semi-transparent
+            player_inner_color = (Color){player_inner_color.r, player_inner_color.g, player_inner_color.b, 128};
+        } else {
+            player_color = (Color){player_color.r, player_color.g, player_color.b, 255};
+            player_inner_color = (Color){player_inner_color.r, player_inner_color.g, player_inner_color.b, 255};
+        }
+    }
+    
+    DrawCircleV(game->position, PLAYER_RADIUS, player_color);
+    DrawCircleV(game->position, PLAYER_RADIUS - 2, player_inner_color);
     
     EndDrawing();
 }
