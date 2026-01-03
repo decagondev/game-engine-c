@@ -3,16 +3,6 @@
 
 #include <stdbool.h>
 
-// Audio service interface (Dependency Inversion Principle)
-// Games depend on this abstraction, not concrete implementation
-
-// Initialize audio system
-bool audio_init(void);
-
-// Cleanup audio system
-void audio_cleanup(void);
-
-// Sound types (Interface Segregation - specific sound types)
 typedef enum {
     AUDIO_SOUND_COIN,
     AUDIO_SOUND_DAMAGE,
@@ -20,11 +10,29 @@ typedef enum {
     AUDIO_SOUND_MENU
 } AudioSoundType;
 
-// Play a specific sound type
+/**
+ * Initialize the audio system.
+ * @return true if initialization successful, false otherwise
+ */
+bool audio_init(void);
+
+/**
+ * Cleanup and shutdown the audio system.
+ */
+void audio_cleanup(void);
+
+/**
+ * Play a predefined sound type.
+ * @param sound_type The type of sound to play
+ */
 void audio_play_sound(AudioSoundType sound_type);
 
-// Play a custom blip sound (for extensibility)
+/**
+ * Play a custom blip sound with specified parameters.
+ * @param frequency Sound frequency in Hz
+ * @param duration Sound duration in seconds
+ * @param volume Sound volume (0.0 to 1.0)
+ */
 void audio_play_blip(float frequency, float duration, float volume);
 
-#endif // AUDIO_H
-
+#endif

@@ -4,13 +4,11 @@
 #include <string.h>
 #include <math.h>
 
-// Constants
 #define SCREEN_WIDTH 800
 #define SCREEN_HEIGHT 600
 #define MAX_HIGH_SCORES 10
 #define MAX_NAME_LENGTH 20
 
-// HighScore structure (needed for rendering)
 struct HighScore {
     char name[MAX_NAME_LENGTH + 1];
     int frame_count;
@@ -18,24 +16,18 @@ struct HighScore {
     float health_remaining;
 };
 
-// Initialize renderer
 void renderer_init(void) {
-    // Nothing to initialize currently
 }
 
-// Clear screen with color
 void renderer_clear(Color color) {
     ClearBackground(color);
 }
 
-// Map rendering
 void renderer_draw_map(const Map* map) {
     if (!map) return;
     
-    // Clear background with map color
     ClearBackground(map_get_background_color(map));
     
-    // Draw walls
     int wall_count;
     const Wall* walls = map_get_walls(map, &wall_count);
     for (int i = 0; i < wall_count; i++) {
@@ -43,7 +35,6 @@ void renderer_draw_map(const Map* map) {
         DrawRectangleLinesEx(walls[i].rect, 2, BLACK);
     }
     
-    // Draw exits
     int exit_count;
     const Exit* exits = map_get_exits(map, &exit_count);
     for (int i = 0; i < exit_count; i++) {
@@ -54,7 +45,6 @@ void renderer_draw_map(const Map* map) {
     }
 }
 
-// Entity rendering
 void renderer_draw_coin(Vector2 position, bool collected) {
     if (collected) return;
     DrawCircleV(position, COIN_RADIUS, GOLD);
@@ -87,7 +77,6 @@ void renderer_draw_player(Vector2 position, bool invincible, int invincibility_t
     DrawCircleV(position, PLAYER_RADIUS - 2, player_inner_color);
 }
 
-// UI rendering
 void renderer_draw_health_bar(float x, float y, float width, float height, float health, float max_health) {
     DrawRectangle(x, y, width, height, GRAY);
     DrawRectangleLinesEx((Rectangle){x, y, width, height}, 2, BLACK);
@@ -125,7 +114,6 @@ void renderer_draw_fps(int x, int y) {
     DrawFPS(x, y);
 }
 
-// Screen rendering
 void renderer_draw_start_screen(int frame_count, const struct HighScore* high_scores, int high_score_count) {
     ClearBackground((Color){30, 30, 50, 255});
     
@@ -140,7 +128,6 @@ void renderer_draw_start_screen(int frame_count, const struct HighScore* high_sc
         renderer_draw_text_centered("Press SPACE or ENTER to start", 450, 28, YELLOW);
     }
     
-    // Decorative coins
     for (int i = 0; i < 5; i++) {
         float x = 150 + i * 125;
         float y = 500;
@@ -149,7 +136,6 @@ void renderer_draw_start_screen(int frame_count, const struct HighScore* high_sc
         DrawCircleLinesV((Vector2){x, y}, COIN_RADIUS, ORANGE);
     }
     
-    // High scores preview
     if (high_score_count > 0) {
         renderer_draw_text_centered("TOP SCORES (Press H for full list)", 420, 18, GOLD);
         int y_offset = 445;
@@ -202,7 +188,6 @@ void renderer_draw_end_screen(int frame_count, int game_start_frame, int total_c
     }
     renderer_draw_text_centered("Press ESC to quit", 520, 24, LIGHTGRAY);
     
-    // Celebration coins
     for (int i = 0; i < 8; i++) {
         float angle = (frame_count * 2 + i * 45) * DEG2RAD;
         float radius = 100;
@@ -271,27 +256,22 @@ void renderer_draw_game_screen(const Map* current_map, Vector2 player_position, 
                                float health, float max_health, int current_map_id, int coins_collected) {
     if (!current_map) return;
     
-    // Draw map
     renderer_draw_map(current_map);
     
-    // Draw coins
     int coin_count;
     const Coin* coins = map_get_coins(current_map, &coin_count);
     for (int i = 0; i < coin_count; i++) {
         renderer_draw_coin(coins[i].position, coins[i].collected);
     }
     
-    // Draw obstacles
     int obstacle_count;
     const Obstacle* obstacles = map_get_obstacles(current_map, &obstacle_count);
     for (int i = 0; i < obstacle_count; i++) {
         renderer_draw_obstacle(obstacles[i].position, obstacles[i].radius, obstacles[i].color);
     }
     
-    // Draw health bar
     renderer_draw_health_bar(SCREEN_WIDTH - 220, 20, 200, 20, health, max_health);
     
-    // Draw UI
     renderer_draw_text("WASD to move", 10, 10, 20, BLACK);
     char map_text[50];
     snprintf(map_text, sizeof(map_text), "Map: %d", current_map_id);
@@ -304,6 +284,5 @@ void renderer_draw_game_screen(const Map* current_map, Vector2 player_position, 
     renderer_draw_text(pos_text, 10, 85, 20, BLACK);
     renderer_draw_fps(10, 110);
     
-    // Draw player
     renderer_draw_player(player_position, invincible, invincibility_timer);
 }

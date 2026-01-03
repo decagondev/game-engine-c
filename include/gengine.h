@@ -4,30 +4,17 @@
 #include "raylib.h"
 #include <stdbool.h>
 
-// Forward declarations
 typedef struct GameEngine GameEngine;
 typedef struct GameInterface GameInterface;
 
-// Game state callback functions (Interface Segregation Principle)
-// Each callback has a single responsibility
 typedef struct {
-    // Initialize game-specific resources
     void (*init)(void* game_data);
-    
-    // Update game logic
     void (*update)(void* game_data, float delta_time);
-    
-    // Render game
     void (*render)(void* game_data);
-    
-    // Cleanup game-specific resources
     void (*cleanup)(void* game_data);
-    
-    // Handle input
     void (*handle_input)(void* game_data, int key);
 } GameCallbacks;
 
-// Engine configuration
 typedef struct {
     int screen_width;
     int screen_height;
@@ -35,24 +22,51 @@ typedef struct {
     int target_fps;
 } EngineConfig;
 
-// Engine interface (Dependency Inversion Principle)
+/**
+ * Create a new game engine instance.
+ * @param config Engine configuration
+ * @return Pointer to created engine, or NULL on failure
+ */
 GameEngine* gengine_create(const EngineConfig* config);
+
+/**
+ * Destroy a game engine instance.
+ * @param engine The engine to destroy
+ */
 void gengine_destroy(GameEngine* engine);
 
-// Register game callbacks (Open/Closed Principle - open for extension)
+/**
+ * Register game callbacks with the engine.
+ * @param engine The engine
+ * @param callbacks Game callbacks structure
+ * @param game_data Game-specific data pointer
+ */
 void gengine_register_game(GameEngine* engine, GameCallbacks* callbacks, void* game_data);
 
-// Run the engine (main loop)
+/**
+ * Run the engine main loop.
+ * @param engine The engine to run
+ */
 void gengine_run(GameEngine* engine);
 
-// Get current frame count
+/**
+ * Get the current frame count.
+ * @param engine The engine
+ * @return Current frame count
+ */
 int gengine_get_frame_count(GameEngine* engine);
 
-// Check if engine is running
+/**
+ * Check if the engine is currently running.
+ * @param engine The engine
+ * @return true if running, false otherwise
+ */
 bool gengine_is_running(GameEngine* engine);
 
-// Request engine to stop
+/**
+ * Request the engine to stop.
+ * @param engine The engine
+ */
 void gengine_stop(GameEngine* engine);
 
-#endif // GENGINE_H
-
+#endif

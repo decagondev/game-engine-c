@@ -5,11 +5,9 @@
 #include <math.h>
 #include <stdlib.h>
 
-// Map constants
 #define OBSTACLE_SPEED 2.0f
 #define OBSTACLE_DIRECTION_CHANGE_FRAMES 120
 
-// Helper function to check circle-rectangle collision
 bool map_check_circle_rect_collision(Vector2 circle_pos, float radius, Rectangle rect) {
     float closest_x = fmaxf(rect.x, fminf(circle_pos.x, rect.x + rect.width));
     float closest_y = fmaxf(rect.y, fminf(circle_pos.y, rect.y + rect.height));
@@ -20,15 +18,12 @@ bool map_check_circle_rect_collision(Vector2 circle_pos, float radius, Rectangle
     return (distance_x * distance_x + distance_y * distance_y) < (radius * radius);
 }
 
-// Check if a position is valid (not colliding with walls)
 bool map_is_valid_spawn_position(Vector2 position, float radius, const Map* map) {
-    // Check screen bounds
     if (position.x < radius || position.x > SCREEN_WIDTH - radius ||
         position.y < radius || position.y > SCREEN_HEIGHT - radius) {
         return false;
     }
     
-    // Check wall collisions
     for (int i = 0; i < map->wall_count; i++) {
         if (map_check_circle_rect_collision(position, radius, map->walls[i].rect)) {
             return false;
@@ -38,19 +33,15 @@ bool map_is_valid_spawn_position(Vector2 position, float radius, const Map* map)
     return true;
 }
 
-// Find a valid spawn position near the desired position
 Vector2 map_find_valid_spawn_position(Vector2 desired_pos, float radius, const Map* map) {
-    // If desired position is valid, use it
     if (map_is_valid_spawn_position(desired_pos, radius, map)) {
         return desired_pos;
     }
     
-    // Try positions in a spiral pattern around the desired position
     float search_radius = radius * 2;
     int max_attempts = 50;
     
     for (int attempt = 0; attempt < max_attempts; attempt++) {
-        // Try positions in a circle around desired position
         for (int angle_step = 0; angle_step < 8; angle_step++) {
             float angle = (angle_step * 45.0f) * DEG2RAD;
             Vector2 test_pos = {
@@ -63,16 +54,13 @@ Vector2 map_find_valid_spawn_position(Vector2 desired_pos, float radius, const M
             }
         }
         
-        // Increase search radius
         search_radius += radius;
     }
     
-    // Fallback: return a safe default position (center of screen)
     Vector2 safe_pos = {SCREEN_WIDTH / 2.0f, SCREEN_HEIGHT / 2.0f};
     return safe_pos;
 }
 
-// Create a new map
 Map* map_create(int map_id) {
     Map* map = (Map*)malloc(sizeof(Map));
     if (!map) return NULL;
@@ -80,12 +68,10 @@ Map* map_create(int map_id) {
     return map;
 }
 
-// Destroy a map
 void map_destroy(Map* map) {
     if (map) free(map);
 }
 
-// Initialize a map
 void map_init(Map* map, int map_id) {
     map->map_id = map_id;
     map->wall_count = 0;
@@ -94,18 +80,15 @@ void map_init(Map* map, int map_id) {
     map->coin_count = 0;
     map->obstacle_count = 0;
     
-    // Set background color based on map
     switch(map_id) {
-        case 0: map->bg_color = (Color){240, 240, 255, 255}; break; // Light blue
-        case 1: map->bg_color = (Color){255, 240, 240, 255}; break; // Light red
-        case 2: map->bg_color = (Color){240, 255, 240, 255}; break; // Light green
-        case 3: map->bg_color = (Color){255, 255, 240, 255}; break; // Light yellow
+        case 0: map->bg_color = (Color){240, 240, 255, 255}; break;
+        case 1: map->bg_color = (Color){255, 240, 240, 255}; break;
+        case 2: map->bg_color = (Color){240, 255, 240, 255}; break;
+        case 3: map->bg_color = (Color){255, 255, 240, 255}; break;
         default: map->bg_color = RAYWHITE; break;
     }
     
-    // Map 0: Top-left room
     if (map_id == 0) {
-        // Walls - create open layout with obstacles
         map->walls[map->wall_count++] = (Wall){(Rectangle){50, 50, 150, 20}};
         map->walls[map->wall_count++] = (Wall){(Rectangle){250, 50, 150, 20}};
         map->walls[map->wall_count++] = (Wall){(Rectangle){50, 50, 20, 150}};
@@ -113,26 +96,20 @@ void map_init(Map* map, int map_id) {
         map->walls[map->wall_count++] = (Wall){(Rectangle){200, 200, 100, 20}};
         map->walls[map->wall_count++] = (Wall){(Rectangle){200, 200, 20, 100}};
         
-        // Exit to Map 1 (right)
         map->exits[map->exit_count++] = (Exit){(Rectangle){SCREEN_WIDTH - EXIT_WIDTH - 20, SCREEN_HEIGHT/2 - EXIT_HEIGHT/2, EXIT_WIDTH, EXIT_HEIGHT}, 1, 0};
-        // Exit to Map 2 (bottom)
         map->exits[map->exit_count++] = (Exit){(Rectangle){SCREEN_WIDTH/2 - EXIT_WIDTH/2, SCREEN_HEIGHT - EXIT_HEIGHT - 20, EXIT_WIDTH, EXIT_HEIGHT}, 2, 0};
         
-        // Entrances
         map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH/2, SCREEN_HEIGHT/2}};
         map->entrances[map->entrance_count++] = (Entrance){(Vector2){50, SCREEN_HEIGHT/2}};
         map->entrances[map->entrance_count++] = (Entrance){(Vector2){SCREEN_WIDTH/2, 50}};
         
-        // Coins
         map->coins[map->coin_count++] = (Coin){(Vector2){150, 150}, false};
         map->coins[map->coin_count++] = (Coin){(Vector2){350, 200}, false};
         map->coins[map->coin_count++] = (Coin){(Vector2){150, 350}, false};
         
-        // Obstacles
         map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){300, 250}, (Vector2){OBSTACLE_SPEED, OBSTACLE_SPEED}, OBSTACLE_RADIUS, 0, RED};
         map->obstacles[map->obstacle_count++] = (Obstacle){(Vector2){200, 300}, (Vector2){-OBSTACLE_SPEED, OBSTACLE_SPEED}, OBSTACLE_RADIUS, 60, RED};
         
-        // Validate and adjust spawn positions
         for (int i = 0; i < map->entrance_count; i++) {
             Vector2 valid_pos = map_find_valid_spawn_position(map->entrances[i].position, PLAYER_RADIUS, map);
             if (valid_pos.x != map->entrances[i].position.x || valid_pos.y != map->entrances[i].position.y) {
@@ -146,7 +123,6 @@ void map_init(Map* map, int map_id) {
             map->obstacles[i].position = valid_pos;
         }
     }
-    // Map 1: Top-right room
     else if (map_id == 1) {
         map->walls[map->wall_count++] = (Wall){(Rectangle){450, 50, 150, 20}};
         map->walls[map->wall_count++] = (Wall){(Rectangle){650, 50, 150, 20}};
@@ -176,7 +152,6 @@ void map_init(Map* map, int map_id) {
             map->obstacles[i].position = map_find_valid_spawn_position(map->obstacles[i].position, OBSTACLE_RADIUS, map);
         }
     }
-    // Map 2: Bottom-left room
     else if (map_id == 2) {
         map->walls[map->wall_count++] = (Wall){(Rectangle){50, 400, 150, 20}};
         map->walls[map->wall_count++] = (Wall){(Rectangle){250, 400, 150, 20}};
@@ -206,7 +181,6 @@ void map_init(Map* map, int map_id) {
             map->obstacles[i].position = map_find_valid_spawn_position(map->obstacles[i].position, OBSTACLE_RADIUS, map);
         }
     }
-    // Map 3: Bottom-right room
     else if (map_id == 3) {
         map->walls[map->wall_count++] = (Wall){(Rectangle){450, 400, 150, 20}};
         map->walls[map->wall_count++] = (Wall){(Rectangle){650, 400, 150, 20}};
@@ -238,7 +212,6 @@ void map_init(Map* map, int map_id) {
     }
 }
 
-// Map query functions
 const Wall* map_get_walls(const Map* map, int* count) {
     if (count) *count = map->wall_count;
     return map->walls;
@@ -272,7 +245,6 @@ int map_get_id(const Map* map) {
     return map->map_id;
 }
 
-// Map modification functions
 Coin* map_get_coin_mutable(Map* map, int index) {
     if (!map || index < 0 || index >= map->coin_count) return NULL;
     return &map->coins[index];
