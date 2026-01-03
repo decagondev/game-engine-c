@@ -3,6 +3,9 @@
 #include "../include/audio.h"
 #include "../include/map.h"
 #include "../include/renderer.h"
+#include "../include/player.h"
+#include "../include/enemy.h"
+#include "../include/item.h"
 #include "raylib.h"
 #include <stdio.h>
 #include <stdbool.h>
@@ -43,14 +46,10 @@ typedef struct {
     bool running;
     int frame_count;
     int game_start_frame;  // Frame count when game started (for score calculation)
-    Vector2 position;  // Player position
-    float speed;       // Movement speed
+    Player* player;        // Player object (using player module)
     int current_map_id;
     int coins_collected;
     int total_coins;
-    float health;
-    float max_health;
-    int invincibility_timer;
     GameStateType state;
     Map maps[NUM_MAPS];
     HighScore high_scores[MAX_HIGH_SCORES];
@@ -189,17 +188,20 @@ static void game_init_callback(void* game_data) {
     state->running = true;
     state->frame_count = 0;
     state->game_start_frame = 0;
-    state->speed = PLAYER_SPEED;
     state->current_map_id = 0;
     state->coins_collected = 0;
     state->state = GAME_STATE_START;
-    state->health = MAX_HEALTH;
-    state->max_health = MAX_HEALTH;
-    state->invincibility_timer = 0;
     state->high_score_count = 0;
     memset(state->player_name, 0, sizeof(state->player_name));
     state->name_char_count = 0;
     memset(&state->pending_score, 0, sizeof(state->pending_score));
+    
+    // Create player
+    state->player = player_create();
+    if (!state->player) {
+        printf("Error: Failed to create player\n");
+        return;
+    }
     
     // Load high scores from file
     load_high_scores(state);
@@ -216,7 +218,8 @@ static void game_init_callback(void* game_data) {
     }
     
     // Start player at entrance 0 of map 0
-    state->position = state->maps[0].entrances[0].position;
+    Vector2 start_pos = state->maps[0].entrances[0].position;
+    player_init(state->player, start_pos);
     
     printf("Game initialized! Total coins: %d\n", state->total_coins);
     printf("High scores loaded: %d\n", state->high_score_count);
@@ -312,9 +315,8 @@ static void game_update_callback(void* game_data, float delta_time) {
             state->state = GAME_STATE_START;
             state->coins_collected = 0;
             state->current_map_id = 0;
-            state->position = state->maps[0].entrances[0].position;
-            state->health = MAX_HEALTH;
-            state->invincibility_timer = 0;
+            Vector2 start_pos = state->maps[0].entrances[0].position;
+            player_reset(state->player, start_pos);
             state->game_start_frame = 0;
             // Reset all coins
             for (int i = 0; i < NUM_MAPS; i++) {
@@ -327,441 +329,142 @@ static void game_update_callback(void* game_data, float delta_time) {
     }
     
     // Only update game logic when playing
+    if (!state->player) return;
     Map* current_map = &state->maps[state->current_map_id];
     
-    // Update invincibility timer
-    if (state->invincibility_timer > 0) {
-        state->invincibility_timer--;
-    }
+    // Update player (invincibility timer, etc.)
+    player_update(state->player);
     
-    // Update obstacles
+    // Update obstacles using enemy module
+    // Note: Map stores Obstacle structures, but we use Enemy module logic
+    // For now, we'll update obstacles directly but could convert to Enemy objects later
     for (int i = 0; i < current_map->obstacle_count; i++) {
         Obstacle* obstacle = &current_map->obstacles[i];
         
-        // Update direction change timer
-        obstacle->direction_change_timer++;
-        if (obstacle->direction_change_timer >= OBSTACLE_DIRECTION_CHANGE_FRAMES) {
-            // Randomly change direction
-            float angle = (float)(GetRandomValue(0, 360)) * DEG2RAD;
-            obstacle->velocity.x = cosf(angle) * OBSTACLE_SPEED;
-            obstacle->velocity.y = sinf(angle) * OBSTACLE_SPEED;
-            obstacle->direction_change_timer = 0;
-        }
-        
-        // Calculate new position
-        Vector2 new_obstacle_pos = {
-            obstacle->position.x + obstacle->velocity.x,
-            obstacle->position.y + obstacle->velocity.y
-        };
-        
-        // Check wall collisions for obstacles
-        bool can_move_obstacle = true;
-        Rectangle obstacle_rect = {
-            new_obstacle_pos.x - obstacle->radius,
-            new_obstacle_pos.y - obstacle->radius,
-            obstacle->radius * 2,
-            obstacle->radius * 2
-        };
-        
-        for (int j = 0; j < current_map->wall_count; j++) {
-            if (CheckCollisionRecs(obstacle_rect, current_map->walls[j].rect)) {
-                can_move_obstacle = false;
-                // Bounce off wall by reversing velocity
-                obstacle->velocity.x = -obstacle->velocity.x;
-                obstacle->velocity.y = -obstacle->velocity.y;
-                break;
-            }
-        }
-        
-        // Keep obstacle within screen bounds
-        if (new_obstacle_pos.x < obstacle->radius) {
-            new_obstacle_pos.x = obstacle->radius;
-            obstacle->velocity.x = -obstacle->velocity.x;
-        }
-        if (new_obstacle_pos.x > SCREEN_WIDTH - obstacle->radius) {
-            new_obstacle_pos.x = SCREEN_WIDTH - obstacle->radius;
-            obstacle->velocity.x = -obstacle->velocity.x;
-        }
-        if (new_obstacle_pos.y < obstacle->radius) {
-            new_obstacle_pos.y = obstacle->radius;
-            obstacle->velocity.y = -obstacle->velocity.y;
-        }
-        if (new_obstacle_pos.y > SCREEN_HEIGHT - obstacle->radius) {
-            new_obstacle_pos.y = SCREEN_HEIGHT - obstacle->radius;
-            obstacle->velocity.y = -obstacle->velocity.y;
-        }
-        
-        if (can_move_obstacle) {
-            obstacle->position = new_obstacle_pos;
+        // Create temporary Enemy object to use enemy module logic
+        Enemy* enemy = enemy_create(obstacle->position, obstacle->velocity, obstacle->color);
+        if (enemy) {
+            enemy_set_direction_timer(enemy, obstacle->direction_change_timer);
+            enemy_update(enemy, current_map);
+            
+            // Copy back updated values
+            obstacle->position = enemy_get_position(enemy);
+            obstacle->velocity = enemy_get_velocity(enemy);
+            obstacle->direction_change_timer = enemy_get_direction_timer(enemy);
+            
+            enemy_destroy(enemy);
         }
     }
     
-    // WASD movement input
-    Vector2 movement = {0.0f, 0.0f};
-    
-    if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP)) {
-        movement.y -= state->speed;
-    }
-    if (IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN)) {
-        movement.y += state->speed;
-    }
-    if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT)) {
-        movement.x -= state->speed;
-    }
-    if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) {
-        movement.x += state->speed;
-    }
-    
-    // Normalize diagonal movement to maintain consistent speed
-    float length = sqrtf(movement.x * movement.x + movement.y * movement.y);
-    if (length > 0.0f) {
-        movement.x = (movement.x / length) * state->speed;
-        movement.y = (movement.y / length) * state->speed;
-    }
-    
-    // Calculate new position
-    Vector2 new_position = {
-        state->position.x + movement.x,
-        state->position.y + movement.y
-    };
-    
-    // Check wall collisions
-    bool can_move = true;
-    int wall_count;
-    const Wall* walls = map_get_walls(current_map, &wall_count);
-    for (int i = 0; i < wall_count; i++) {
-        if (map_check_circle_rect_collision(new_position, PLAYER_RADIUS, walls[i].rect)) {
-            can_move = false;
-            break;
-        }
-    }
-    
-    // Update position if no collision
-    if (can_move) {
-        state->position = new_position;
-    }
-    
-    // Keep player within screen bounds
-    if (state->position.x < PLAYER_RADIUS) {
-        state->position.x = PLAYER_RADIUS;
-    }
-    if (state->position.x > SCREEN_WIDTH - PLAYER_RADIUS) {
-        state->position.x = SCREEN_WIDTH - PLAYER_RADIUS;
-    }
-    if (state->position.y < PLAYER_RADIUS) {
-        state->position.y = PLAYER_RADIUS;
-    }
-    if (state->position.y > SCREEN_HEIGHT - PLAYER_RADIUS) {
-        state->position.y = SCREEN_HEIGHT - PLAYER_RADIUS;
-    }
+    // Update player movement
+    player_update_movement(state->player, current_map);
     
     // Check for exit collision
-    int exit_count;
-    const Exit* exits = map_get_exits(current_map, &exit_count);
-    for (int i = 0; i < exit_count; i++) {
-        const Exit* exit = &exits[i];
-        if (map_check_circle_rect_collision(state->position, PLAYER_RADIUS, exit->rect)) {
-            // Switch to target map
-            state->current_map_id = exit->target_map_id;
-            Map* target_map = &state->maps[exit->target_map_id];
-            
-            // Move player to target entrance
-            int entrance_count;
-            const Entrance* entrances = map_get_entrances(target_map, &entrance_count);
-            if (exit->target_entrance_id < entrance_count) {
-                state->position = entrances[exit->target_entrance_id].position;
-            } else if (entrance_count > 0) {
-                state->position = entrances[0].position;
-            }
-            
-            printf("Entered map %d\n", exit->target_map_id);
-            break;
+    int target_map_id, target_entrance_id;
+    if (player_check_exit_collision(state->player, current_map, &target_map_id, &target_entrance_id)) {
+        // Switch to target map
+        state->current_map_id = target_map_id;
+        Map* target_map = &state->maps[target_map_id];
+        
+        // Move player to target entrance
+        int entrance_count;
+        const Entrance* entrances = map_get_entrances(target_map, &entrance_count);
+        Vector2 new_pos;
+        if (target_entrance_id < entrance_count) {
+            new_pos = entrances[target_entrance_id].position;
+        } else if (entrance_count > 0) {
+            new_pos = entrances[0].position;
+        } else {
+            new_pos = (Vector2){SCREEN_WIDTH/2, SCREEN_HEIGHT/2};
         }
+        player_set_position(state->player, new_pos);
+        
+        printf("Entered map %d\n", target_map_id);
     }
     
-    // Check for obstacle collision (damage)
+    // Check for obstacle collision (damage) using enemy module
+    Vector2 player_pos = player_get_position(state->player);
     for (int i = 0; i < current_map->obstacle_count; i++) {
         Obstacle* obstacle = &current_map->obstacles[i];
-        float distance = sqrtf((state->position.x - obstacle->position.x) * (state->position.x - obstacle->position.x) +
-                               (state->position.y - obstacle->position.y) * (state->position.y - obstacle->position.y));
-        if (distance < PLAYER_RADIUS + obstacle->radius && state->invincibility_timer == 0) {
-            // Take damage
-            state->health -= DAMAGE_PER_HIT;
-            state->invincibility_timer = INVINCIBILITY_FRAMES;
-            audio_play_sound(AUDIO_SOUND_DAMAGE);
-            printf("Hit! Health: %.0f/%.0f\n", state->health, state->max_health);
-            
-            // Check if player died
-            if (state->health <= 0) {
-                state->health = 0;
-                printf("Player died! Resetting game...\n");
-                state->coins_collected = 0;
-                state->current_map_id = 0;
-                state->position = state->maps[0].entrances[0].position;
-                state->health = MAX_HEALTH;
-                state->invincibility_timer = 0;
-                state->game_start_frame = state->frame_count; // Reset timer for new attempt
-                // Reset all coins
-                for (int j = 0; j < NUM_MAPS; j++) {
-                    for (int k = 0; k < state->maps[j].coin_count; k++) {
-                        state->maps[j].coins[k].collected = false;
+        
+        // Create temporary Enemy to use collision detection
+        Enemy* enemy = enemy_create(obstacle->position, obstacle->velocity, obstacle->color);
+        if (enemy) {
+            if (enemy_check_collision_with_player(enemy, player_pos, PLAYER_RADIUS) && !player_is_invincible(state->player)) {
+                // Take damage
+                player_apply_damage(state->player, DAMAGE_PER_HIT);
+                audio_play_sound(AUDIO_SOUND_DAMAGE);
+                printf("Hit! Health: %.0f/%.0f\n", player_get_health(state->player), player_get_max_health(state->player));
+                
+                // Check if player died
+                if (!player_is_alive(state->player)) {
+                    printf("Player died! Resetting game...\n");
+                    state->coins_collected = 0;
+                    state->current_map_id = 0;
+                    Vector2 start_pos = state->maps[0].entrances[0].position;
+                    player_reset(state->player, start_pos);
+                    state->game_start_frame = state->frame_count; // Reset timer for new attempt
+                    // Reset all coins
+                    for (int j = 0; j < NUM_MAPS; j++) {
+                        for (int k = 0; k < state->maps[j].coin_count; k++) {
+                            state->maps[j].coins[k].collected = false;
+                        }
                     }
+                    // Reset all obstacles to initial positions
+                    for (int j = 0; j < NUM_MAPS; j++) {
+                        map_init(&state->maps[j], j);
+                    }
+                    enemy_destroy(enemy);
+                    break;
                 }
-                // Reset all obstacles to initial positions
-                for (int j = 0; j < NUM_MAPS; j++) {
-                    map_init(&state->maps[j], j);
-                }
-                break;
             }
+            enemy_destroy(enemy);
         }
     }
     
-    // Check for coin collection
+    // Check for coin collection using item module
+    player_pos = player_get_position(state->player);
     for (int i = 0; i < current_map->coin_count; i++) {
         Coin* coin = &current_map->coins[i];
         if (!coin->collected) {
-            float distance = sqrtf((state->position.x - coin->position.x) * (state->position.x - coin->position.x) +
-                                   (state->position.y - coin->position.y) * (state->position.y - coin->position.y));
-            if (distance < PLAYER_RADIUS + COIN_RADIUS) {
-                coin->collected = true;
-                state->coins_collected++;
-                audio_play_sound(AUDIO_SOUND_COIN);
-                printf("Coin collected! Total: %d/%d\n", state->coins_collected, state->total_coins);
-                
-                // Check if all coins are collected
-                if (all_coins_collected(state)) {
-                    // Calculate completion frame count
-                    int completion_frames = state->frame_count - state->game_start_frame;
-                    printf("All coins collected! Game complete in %d frames!\n", completion_frames);
+            // Create temporary Item to use item module collision detection
+            Item* item = item_create(ITEM_TYPE_COIN, coin->position);
+            if (item) {
+                if (item_check_collision_with_player(item, player_pos, PLAYER_RADIUS)) {
+                    item_collect(item); // Mark as collected (triggers item_on_collect)
+                    coin->collected = true;
+                    state->coins_collected++;
+                    audio_play_sound(AUDIO_SOUND_COIN);
+                    printf("Coin collected! Total: %d/%d\n", state->coins_collected, state->total_coins);
                     
-                    // Play victory sound
-                    audio_play_sound(AUDIO_SOUND_VICTORY);
-                    
-                    // Store pending score and go to name entry
-                    state->pending_score.frame_count = completion_frames;
-                    state->pending_score.coins_collected = state->coins_collected;
-                    state->pending_score.health_remaining = state->health;
-                    
-                    // Reset name input
-                    memset(state->player_name, 0, sizeof(state->player_name));
-                    state->name_char_count = 0;
-                    
-                    state->state = GAME_STATE_ENTER_NAME;
+                    // Check if all coins are collected
+                    if (all_coins_collected(state)) {
+                        // Calculate completion frame count
+                        int completion_frames = state->frame_count - state->game_start_frame;
+                        printf("All coins collected! Game complete in %d frames!\n", completion_frames);
+                        
+                        // Play victory sound
+                        audio_play_sound(AUDIO_SOUND_VICTORY);
+                        
+                        // Store pending score and go to name entry
+                        state->pending_score.frame_count = completion_frames;
+                        state->pending_score.coins_collected = state->coins_collected;
+                        state->pending_score.health_remaining = player_get_health(state->player);
+                        
+                        // Reset name input
+                        memset(state->player_name, 0, sizeof(state->player_name));
+                        state->name_char_count = 0;
+                        
+                        state->state = GAME_STATE_ENTER_NAME;
+                    }
                 }
+                item_destroy(item);
             }
         }
     }
 }
 
 // Render functions are now in renderer.c module
-// Legacy function kept for compatibility - should be removed
-static void render_start_screen_legacy(GameState* game) {
-    // Gradient background
-    ClearBackground((Color){30, 30, 50, 255});
-    
-    // Title
-    const char* title = "COIN COLLECTOR";
-    int title_font_size = 60;
-    int title_width = MeasureText(title, title_font_size);
-    DrawText(title, SCREEN_WIDTH/2 - title_width/2, 150, title_font_size, GOLD);
-    
-    // Instructions
-    const char* instruction1 = "Collect all coins across 4 maps!";
-    const char* instruction2 = "Use WASD to move";
-    const char* instruction3 = "Walk into green exits to change maps";
-    const char* instruction4 = "Avoid red obstacles - they will kill you!";
-    const char* press_key = "Press SPACE or ENTER to start";
-    const char* high_score_key = "Press H to view high scores";
-    
-    DrawText(instruction1, SCREEN_WIDTH/2 - MeasureText(instruction1, 24)/2, 240, 24, WHITE);
-    DrawText(instruction2, SCREEN_WIDTH/2 - MeasureText(instruction2, 20)/2, 280, 20, LIGHTGRAY);
-    DrawText(instruction3, SCREEN_WIDTH/2 - MeasureText(instruction3, 20)/2, 310, 20, LIGHTGRAY);
-    DrawText(instruction4, SCREEN_WIDTH/2 - MeasureText(instruction4, 20)/2, 340, 20, RED);
-    DrawText(high_score_key, SCREEN_WIDTH/2 - MeasureText(high_score_key, 18)/2, 380, 18, YELLOW);
-    
-    // Blinking start text
-    if ((game->frame_count / 30) % 2 == 0) {
-        int press_width = MeasureText(press_key, 28);
-        DrawText(press_key, SCREEN_WIDTH/2 - press_width/2, 450, 28, YELLOW);
-    }
-    
-    // Draw some decorative coins
-    for (int i = 0; i < 5; i++) {
-        float x = 150 + i * 125;
-        float y = 500;
-        DrawCircleV((Vector2){x, y}, COIN_RADIUS, GOLD);
-        DrawCircleV((Vector2){x, y}, COIN_RADIUS - 2, YELLOW);
-        DrawCircleLinesV((Vector2){x, y}, COIN_RADIUS, ORANGE);
-    }
-    
-    // Draw high scores preview
-    if (game->high_score_count > 0) {
-        DrawText("TOP SCORES (Press H for full list)", SCREEN_WIDTH/2 - MeasureText("TOP SCORES (Press H for full list)", 18)/2, 420, 18, GOLD);
-        int y_offset = 445;
-        int max_display = (game->high_score_count < 3) ? game->high_score_count : 3;
-        for (int i = 0; i < max_display; i++) {
-            char score_text[120];
-            snprintf(score_text, sizeof(score_text), "%d. %s - %d frames", 
-                     i + 1, game->high_scores[i].name, game->high_scores[i].frame_count);
-            DrawText(score_text, SCREEN_WIDTH/2 - MeasureText(score_text, 16)/2, y_offset, 16, WHITE);
-            y_offset += 18;
-        }
-    }
-}
-
-static void render_end_screen_legacy(GameState* game) {
-    // Victory background
-    ClearBackground((Color){20, 50, 20, 255});
-    
-    // Victory message
-    const char* victory = "VICTORY!";
-    int victory_font_size = 70;
-    int victory_width = MeasureText(victory, victory_font_size);
-    DrawText(victory, SCREEN_WIDTH/2 - victory_width/2, 150, victory_font_size, GOLD);
-    
-    // Stats
-    char stats[100];
-    snprintf(stats, sizeof(stats), "You collected all %d coins!", game->total_coins);
-    int stats_width = MeasureText(stats, 32);
-    DrawText(stats, SCREEN_WIDTH/2 - stats_width/2, 220, 32, WHITE);
-    
-    int completion_frames = game->frame_count - game->game_start_frame;
-    char frames[100];
-    snprintf(frames, sizeof(frames), "Completion time: %d frames", completion_frames);
-    int frames_width = MeasureText(frames, 24);
-    DrawText(frames, SCREEN_WIDTH/2 - frames_width/2, 260, 24, LIGHTGRAY);
-    
-    char health_text[100];
-    snprintf(health_text, sizeof(health_text), "Health remaining: %.0f/%.0f", game->health, game->max_health);
-    int health_width = MeasureText(health_text, 24);
-    DrawText(health_text, SCREEN_WIDTH/2 - health_width/2, 290, 24, LIGHTGRAY);
-    
-    // Draw high scores
-    if (game->high_score_count > 0) {
-        DrawText("HIGH SCORES (Lowest frames = Best)", SCREEN_WIDTH/2 - MeasureText("HIGH SCORES (Lowest frames = Best)", 20)/2, 330, 20, GOLD);
-        int y_offset = 355;
-        int max_display = (game->high_score_count < 5) ? game->high_score_count : 5;
-        for (int i = 0; i < max_display; i++) {
-            char score_text[150];
-            snprintf(score_text, sizeof(score_text), "%d. %s - %d frames | Coins: %d | HP: %.0f", 
-                     i + 1, game->high_scores[i].name,
-                     game->high_scores[i].frame_count, 
-                     game->high_scores[i].coins_collected, 
-                     game->high_scores[i].health_remaining);
-            DrawText(score_text, SCREEN_WIDTH/2 - MeasureText(score_text, 16)/2, y_offset, 16, WHITE);
-            y_offset += 18;
-        }
-    }
-    
-    // Restart instruction
-    const char* restart = "Press SPACE or ENTER to play again";
-    const char* quit = "Press ESC to quit";
-    
-    // Blinking restart text
-    if ((game->frame_count / 30) % 2 == 0) {
-        int restart_width = MeasureText(restart, 28);
-        DrawText(restart, SCREEN_WIDTH/2 - restart_width/2, 480, 28, YELLOW);
-    }
-    
-    int quit_width = MeasureText(quit, 24);
-    DrawText(quit, SCREEN_WIDTH/2 - quit_width/2, 520, 24, LIGHTGRAY);
-    
-    // Draw celebration coins
-    for (int i = 0; i < 8; i++) {
-        float angle = (game->frame_count * 2 + i * 45) * DEG2RAD;
-        float radius = 100;
-        float x = SCREEN_WIDTH/2 + cosf(angle) * radius;
-        float y = SCREEN_HEIGHT/2 + 50 + sinf(angle) * radius;
-        DrawCircleV((Vector2){x, y}, COIN_RADIUS, GOLD);
-        DrawCircleV((Vector2){x, y}, COIN_RADIUS - 2, YELLOW);
-        DrawCircleLinesV((Vector2){x, y}, COIN_RADIUS, ORANGE);
-    }
-}
-
-static void render_name_entry_screen_legacy(GameState* game) {
-    ClearBackground((Color){30, 30, 50, 255});
-    
-    // Title
-    const char* title = "ENTER YOUR NAME";
-    int title_font_size = 50;
-    int title_width = MeasureText(title, title_font_size);
-    DrawText(title, SCREEN_WIDTH/2 - title_width/2, 200, title_font_size, GOLD);
-    
-    // Score info
-    char score_info[150];
-    snprintf(score_info, sizeof(score_info), "Frames: %d | Coins: %d | HP: %.0f", 
-             game->pending_score.frame_count, 
-             game->pending_score.coins_collected,
-             game->pending_score.health_remaining);
-    int info_width = MeasureText(score_info, 24);
-    DrawText(score_info, SCREEN_WIDTH/2 - info_width/2, 280, 24, WHITE);
-    
-    // Name input box
-    int box_width = 400;
-    int box_height = 50;
-    int box_x = SCREEN_WIDTH/2 - box_width/2;
-    int box_y = 350;
-    
-    DrawRectangle(box_x, box_y, box_width, box_height, DARKGRAY);
-    DrawRectangleLinesEx((Rectangle){box_x, box_y, box_width, box_height}, 3, WHITE);
-    
-    // Display name with cursor
-    char display_text[MAX_NAME_LENGTH + 2];
-    snprintf(display_text, sizeof(display_text), "%s_", game->player_name);
-    int text_width = MeasureText(display_text, 32);
-    DrawText(display_text, box_x + 10, box_y + 10, 32, WHITE);
-    
-    // Instructions
-    const char* instruction = "Type your name and press ENTER";
-    int inst_width = MeasureText(instruction, 20);
-    DrawText(instruction, SCREEN_WIDTH/2 - inst_width/2, 420, 20, LIGHTGRAY);
-}
-
-static void render_high_scores_screen_legacy(GameState* game) {
-    ClearBackground((Color){20, 20, 40, 255});
-    
-    // Title
-    const char* title = "HIGH SCORES";
-    int title_font_size = 60;
-    int title_width = MeasureText(title, title_font_size);
-    DrawText(title, SCREEN_WIDTH/2 - title_width/2, 50, title_font_size, GOLD);
-    
-    const char* subtitle = "Lowest frames = Best score";
-    int subtitle_width = MeasureText(subtitle, 20);
-    DrawText(subtitle, SCREEN_WIDTH/2 - subtitle_width/2, 120, 20, LIGHTGRAY);
-    
-    // Draw all high scores
-    if (game->high_score_count > 0) {
-        int y_offset = 180;
-        int max_display = (game->high_score_count < MAX_HIGH_SCORES) ? game->high_score_count : MAX_HIGH_SCORES;
-        
-        // Header
-        const char* header = "Rank  Name                Frames  Coins  HP";
-        DrawText(header, SCREEN_WIDTH/2 - MeasureText(header, 18)/2, y_offset, 18, YELLOW);
-        y_offset += 35;
-        
-        for (int i = 0; i < max_display; i++) {
-            char score_text[200];
-            snprintf(score_text, sizeof(score_text), "%2d.   %-20s %6d  %5d  %.0f", 
-                     i + 1, 
-                     game->high_scores[i].name,
-                     game->high_scores[i].frame_count, 
-                     game->high_scores[i].coins_collected, 
-                     game->high_scores[i].health_remaining);
-            DrawText(score_text, SCREEN_WIDTH/2 - MeasureText(score_text, 18)/2, y_offset, 18, WHITE);
-            y_offset += 25;
-        }
-    } else {
-        const char* no_scores = "No high scores yet!";
-        int no_scores_width = MeasureText(no_scores, 32);
-        DrawText(no_scores, SCREEN_WIDTH/2 - no_scores_width/2, 300, 32, LIGHTGRAY);
-    }
-    
-    // Instructions
-    const char* instruction = "Press ESC, H, SPACE, or ENTER to return";
-    int inst_width = MeasureText(instruction, 24);
-    DrawText(instruction, SCREEN_WIDTH/2 - inst_width/2, SCREEN_HEIGHT - 50, 24, YELLOW);
-}
 
 // Game render callback
 static void game_render_callback(void* game_data) {
@@ -775,8 +478,10 @@ static void game_render_callback(void* game_data) {
     }
     
     if (state->state == GAME_STATE_END) {
+        if (!state->player) return;
         renderer_draw_end_screen(state->frame_count, state->game_start_frame, state->total_coins, 
-                                 state->health, state->max_health, state->high_scores, state->high_score_count);
+                                 player_get_health(state->player), player_get_max_health(state->player), 
+                                 state->high_scores, state->high_score_count);
         return;
     }
     
@@ -794,16 +499,25 @@ static void game_render_callback(void* game_data) {
     }
     
     // Render playing state
+    if (!state->player) return;
     Map* current_map = &state->maps[state->current_map_id];
-    renderer_draw_game_screen(current_map, state->position, 
-                             state->invincibility_timer > 0, state->invincibility_timer,
-                             state->health, state->max_health, state->current_map_id, state->coins_collected);
+    renderer_draw_game_screen(current_map, player_get_position(state->player), 
+                             player_is_invincible(state->player), player_get_invincibility_timer(state->player),
+                             player_get_health(state->player), player_get_max_health(state->player), 
+                             state->current_map_id, state->coins_collected);
 }
 
 // Game cleanup callback
 static void game_cleanup_callback(void* game_data) {
     CoinCollectorGame* game = (CoinCollectorGame*)game_data;
     GameState* state = &game->state;
+    
+    // Cleanup player
+    if (state->player) {
+        player_destroy(state->player);
+        state->player = NULL;
+    }
+    
     printf("Game cleanup. Total frames: %d\n", state->frame_count);
 }
 
